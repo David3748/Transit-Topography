@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NYC Transit Topography</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Leaflet CSS (Integrity removed for stability) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Leaflet JS (Integrity removed for stability) -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100vw;
+            z-index: 0;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.15);
+        }
+    </style>
+
+    <!-- Load Config & Engine -->
+    <script src="config.js"></script>
+    <script src="transit_engine.js"></script>
+</head>
+
+<body class="bg-gray-50 text-gray-900 overflow-hidden">
+
+    <!-- Map Container -->
+    <div id="map"></div>
+
+    <!-- UI Overlay -->
+    <div class="absolute top-4 left-4 z-[1000] glass-panel p-6 rounded-2xl max-w-sm transition-all duration-300">
+        <h1 class="text-2xl font-extrabold mb-1 tracking-tight text-gray-900">
+            <span id="city-title" class="text-blue-600">NYC</span> Transit Topography
+        </h1>
+        <p class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Isochrone Simulator</p>
+
+        <div class="mb-4">
+            <div class="flex justify-between text-sm font-semibold mb-1 text-gray-700">
+                <span>Current Origin</span>
+            </div>
+            <!-- Added cursor-pointer and hover effect to indicate interactivity -->
+            <div id="origin-label"
+                class="text-lg font-bold text-blue-600 truncate cursor-pointer hover:bg-blue-50 hover:underline rounded px-1 -ml-1 transition-colors"
+                title="Click to change address">
+                Grand Central Terminal
+            </div>
+
+            <!-- Search Container (Relative for dropdown positioning) -->
+            <div id="search-container" class="relative hidden">
+                <input id="origin-input" type="text"
+                    class="w-full text-lg font-bold text-gray-900 bg-white border border-blue-500 rounded-t px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    placeholder="Type an address..." autocomplete="off" />
+                <!-- Suggestions Dropdown -->
+                <ul id="suggestions-list"
+                    class="hidden absolute left-0 right-0 bg-white border-x border-b border-blue-500 rounded-b shadow-lg max-h-60 overflow-y-auto z-[2000]">
+                </ul>
+            </div>
+
+            <p class="text-xs text-gray-500 mt-1">Click address to search or click map to move.</p>
+        </div>
+
+        <div class="mb-6">
+            <div class="flex justify-between text-xs mb-2 text-gray-500">
+                <span>Travel Time Zones (5m Blocks)</span>
+            </div>
+
+            <!-- Discrete Legend Blocks -->
+            <div class="flex h-4 w-full rounded-md overflow-hidden mb-1 border border-gray-200">
+                <div class="flex-1" style="background-color: rgb(59, 130, 246);"></div> <!-- 0-5 -->
+                <div class="flex-1" style="background-color: rgb(6, 182, 212);"></div> <!-- 5-10 -->
+                <div class="flex-1" style="background-color: rgb(16, 185, 129);"></div> <!-- 10-15 -->
+                <div class="flex-1" style="background-color: rgb(132, 204, 22);"></div> <!-- 15-20 -->
+                <div class="flex-1" style="background-color: rgb(250, 204, 21);"></div> <!-- 20-25 -->
+                <div class="flex-1" style="background-color: rgb(249, 115, 22);"></div> <!-- 25-30 -->
+            </div>
+
+            <div class="flex justify-between text-[10px] text-gray-500 font-mono px-1">
+                <span>0</span>
+                <span>5</span>
+                <span>10</span>
+                <span>15</span>
+                <span>20</span>
+                <span>25</span>
+                <span>30m</span>
+            </div>
+        </div>
+
+        <div class="space-y-3">
+            <div class="flex items-center justify-between">
+                <label class="text-xs font-medium text-gray-700">Opacity</label>
+                <input type="range" id="opacity-slider" min="0.1" max="0.9" step="0.1" value="0.6"
+                    class="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+            </div>
+            <div class="flex items-center justify-between">
+                <label class="text-xs font-medium text-gray-700">Resolution (Speed vs Quality)</label>
+                <select id="res-select"
+                    class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <option value="8">Low (Fast)</option>
+                    <option value="4" selected>Medium</option>
+                    <option value="2">High (Slow)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="mt-6 pt-4 border-t border-gray-200">
+            <p class="text-[10px] text-gray-500 leading-relaxed">
+                <strong class="text-gray-800">How it works:</strong> This simulation combines walking speed (5km/h) with
+                a rapid transit network model. It calculates the optimal path from the origin to every pixel on screen.
+            </p>
+            <div class="mt-3">
+                <button id="fetch-stations-btn"
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Load Transit Stations for Area
+                </button>
+                <p id="station-count" class="text-[10px] text-gray-400 mt-1 text-center hidden">Loaded 0 stations</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay"
+        class="fixed inset-0 bg-white/50 backdrop-blur-sm z-[2000] hidden flex items-center justify-center">
+        <div class="bg-white p-4 rounded-xl shadow-2xl flex flex-col items-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+            <span class="text-sm font-semibold text-gray-700">Fetching Transit Data...</span>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. DATA: NYC Subway Stations (Selected Major Hubs & Lines) ---
+        // --- 1. DATA: Dynamic Stations ---
+        // --- 1. DATA: Dynamic Stations ---
+        let transitGraph = new TransitGraph();
+        let transitFetcher = new TransitFetcher(transitGraph);
+        let networkTimes = new Map(); // id -> time (seconds)
+
+
+        // --- 2. CONFIGURATION ---
+        const WALK_SPEED_MPS = 1.3; // ~4.7 km/h
+        const SUBWAY_SPEED_MPS = 8.3; // ~30 km/h (Average including stops)
+        const TRANSFER_PENALTY_SEC = 300; // 5 mins to enter/wait
+
+        let origin = [40.7527, -73.9772]; // Default: Grand Central
+        let canvasLayer = null;
+        let map = null;
+        let opacity = 0.6;
+        let pixelSize = 4; // Resolution (Higher number = blockier but faster)
+
+        // --- 3. INITIALIZE MAP ---
+        function initMap() {
+            if (typeof L === 'undefined') {
+                alert('Leaflet library failed to load. Please check your internet connection.');
+                return;
+            }
+
+            // Use a LIGHT map style (Google Maps / Docs style)
+            map = L.map('map', {
+                zoomControl: false,
+                attributionControl: false
+            }).setView(origin, 13);
+
+            // CartoDB Positron (Light/Gray/Clean)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19,
+                subdomains: 'abcd'
+            }).addTo(map);
+
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            // Add Origin Marker
+            const markerIcon = L.divIcon({
+                className: 'custom-div-icon',
+                html: "<div style='background-color: #2563eb; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);'></div>",
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            });
+
+            let originMarker = L.marker(origin, { icon: markerIcon }).addTo(map);
+
+            // Event: Click to move origin
+            map.on('click', function (e) {
+                // Explicitly use window.updateOrigin to ensure correct scope
+                if (window.updateOrigin) {
+                    window.updateOrigin(e.latlng.lat, e.latlng.lng);
+                }
+            });
+
+            // Define helper function globally
+            window.updateOrigin = function (lat, lng, labelText = null) {
+                origin = [lat, lng];
+                originMarker.setLatLng(origin);
+                map.panTo(origin); // Center map on new location
+
+                if (labelText) {
+                    document.getElementById('origin-label').innerText = labelText;
+                } else {
+                    updateOriginLabel({ lat, lon: lng });
+                }
+
+                // --- NEW: Calculate Network Times ---
+                if (transitGraph.nodes.size > 0) {
+                    const entryNodes = [];
+                    // Find all stations within reasonable walking distance (e.g. 2km)
+                    for (const [id, node] of transitGraph.nodes) {
+                        const dist = transitGraph.distHaversine(lat, lng, node.lat, node.lon);
+                        if (dist < 2000) { // Optimization: don't walk 10km to a station
+                            const walkTime = dist / WALK_SPEED_MPS;
+                            entryNodes.push({ id, initialWalkTime: walkTime });
+                        }
+                    }
+
+                    // Dijkstra from these entry points
+                    networkTimes = transitGraph.calculateNetworkTimes(entryNodes, TRANSFER_PENALTY_SEC);
+                }
+
+                if (canvasLayer) canvasLayer.redraw();
+            }
+
+            // Setup Canvas Overlay
+            initCanvasLayer();
+
+            // Setup Address Search Interactions
+            // Initialize LocationIQ
+            initLocationIQ();
+
+            // Setup Data Fetching
+            initDataFetching();
+        }
+
+        // --- 3.2 DATA FETCHING (OVERPASS API) ---
+        function initDataFetching() {
+            const btn = document.getElementById('fetch-stations-btn');
+            const countLabel = document.getElementById('station-count');
+            const loading = document.getElementById('loading-overlay');
+
+            btn.addEventListener('click', async () => {
+                const bounds = map.getBounds();
+
+                try {
+                    loading.classList.remove('hidden');
+
+                    // 1. Fetch Data
+                    const count = await transitFetcher.fetchRoutes(bounds);
+
+                    // 2. Generate Transfers
+                    transitGraph.generateTransferEdges(200); // 200m threshold
+
+                    countLabel.innerText = `Loaded ${count} stations`;
+                    countLabel.classList.remove('hidden');
+
+                    // 3. Recalculate Times for current origin
+                    if (window.updateOrigin) {
+                        // Trigger calculation by "moving" to current origin
+                        window.updateOrigin(origin[0], origin[1]);
+                    }
+
+                } catch (err) {
+                    alert("Failed to load transit data: " + err.message);
+                } finally {
+                    loading.classList.add('hidden');
+                }
+            });
+        }
+
+        // --- 3.5 ADDRESS SEARCH LOGIC (LOCATIONIQ) ---
+        function initLocationIQ() {
+            const label = document.getElementById('origin-label');
+            const container = document.getElementById('search-container');
+            const input = document.getElementById('origin-input');
+            const list = document.getElementById('suggestions-list');
+
+            // Show input on click
+            label.addEventListener('click', () => {
+                label.classList.add('hidden');
+                container.classList.remove('hidden');
+                input.value = "";
+                input.focus();
+            });
+
+            // Debounce utility
+            let debounceTimer;
+            const debounce = (func, delay) => {
+                return (...args) => {
+                    clearTimeout(debounceTimer);
+                    debounceTimer = setTimeout(() => func.apply(this, args), delay);
+                };
+            };
+
+            // Normalize query for better OSM matching (e.g. "Fifth" -> "5th")
+            const normalizeQuery = (q) => {
+                const replacements = {
+                    'first': '1st', 'second': '2nd', 'third': '3rd', 'fourth': '4th', 'fifth': '5th',
+                    'sixth': '6th', 'seventh': '7th', 'eighth': '8th', 'ninth': '9th', 'tenth': '10th'
+                };
+                return q.replace(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/gi, (match) => {
+                    return replacements[match.toLowerCase()];
+                });
+            };
+
+            // Fetch suggestions
+            const fetchSuggestions = async (rawQuery) => {
+                if (!rawQuery || rawQuery.length < 3) {
+                    list.classList.add('hidden');
+                    return;
+                }
+
+                if (typeof LOCATIONIQ_API_KEY === 'undefined' || LOCATIONIQ_API_KEY === 'YOUR_LOCATIONIQ_API_KEY') {
+                    console.warn("LocationIQ API Key not set.");
+                    return;
+                }
+
+                const query = normalizeQuery(rawQuery);
+
+                try {
+                    // LocationIQ Autocomplete API
+                    // Removed viewbox and countrycodes to allow global search
+                    const url = `https://api.locationiq.com/v1/autocomplete?key=${LOCATIONIQ_API_KEY}&q=${encodeURIComponent(query)}&limit=5&dedupe=1`;
+
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error("LocationIQ API Error: " + resp.statusText);
+                    const data = await resp.json();
+
+                    renderSuggestions(data);
+                } catch (e) {
+                    console.error("Search error", e);
+                }
+            };
+
+            // Render dropdown
+            const renderSuggestions = (results) => {
+                list.innerHTML = '';
+                if (!results || results.length === 0) {
+                    list.classList.add('hidden');
+                    return;
+                }
+
+                results.forEach(item => {
+                    const li = document.createElement('li');
+                    li.className = "px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 text-sm text-gray-700 last:border-0";
+
+                    // LocationIQ returns 'display_name' and 'address' object
+                    const name = item.display_name.split(',')[0];
+                    const address = item.display_name.substring(name.length + 2);
+
+                    li.innerHTML = `
+                        <div class="font-semibold text-gray-900">${name}</div>
+                        <div class="text-xs text-gray-500 truncate">${address}</div>
+                    `;
+
+                    li.addEventListener('click', () => {
+                        selectLocation(item);
+                    });
+
+                    list.appendChild(li);
+                });
+
+                list.classList.remove('hidden');
+                input.classList.remove('rounded');
+                input.classList.add('rounded-t');
+            };
+
+            const selectLocation = (item) => {
+                const lat = parseFloat(item.lat);
+                const lon = parseFloat(item.lon);
+                const name = item.display_name.split(',')[0];
+
+                if (window.updateOrigin) {
+                    window.updateOrigin(lat, lon, name);
+                }
+
+                // Reset UI
+                list.classList.add('hidden');
+                container.classList.add('hidden');
+                label.classList.remove('hidden');
+                input.classList.add('rounded');
+                input.classList.remove('rounded-t');
+            };
+
+            // Input listener
+            input.addEventListener('input', debounce((e) => {
+                fetchSuggestions(e.target.value);
+            }, 300));
+
+            // Handle Enter key (pick first result)
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const firstItem = list.querySelector('li');
+                    if (firstItem) {
+                        firstItem.click();
+                    }
+                }
+                if (e.key === 'Escape') {
+                    list.classList.add('hidden');
+                    container.classList.add('hidden');
+                    label.classList.remove('hidden');
+                }
+            });
+
+            // Click outside to close
+            document.addEventListener('click', (e) => {
+                if (!container.classList.contains('hidden') && !container.contains(e.target) && !label.contains(e.target)) {
+                    list.classList.add('hidden');
+                    container.classList.add('hidden');
+                    label.classList.remove('hidden');
+                }
+            });
+        }
+
+        // --- 4. GEO-MATH HELPERS ---
+        function distHaversine(lat1, lon1, lat2, lon2) {
+            const R = 6371000; // meters
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        // --- 5. CANVAS LAYER (THE CORE LOGIC) ---
+        function initCanvasLayer() {
+            L.CanvasLayer = L.Layer.extend({
+                onAdd: function (map) {
+                    this._map = map;
+                    this._canvas = L.DomUtil.create('canvas', 'leaflet-zoom-hide');
+                    this._canvas.style.pointerEvents = 'none'; // Let clicks pass through
+                    this._canvas.style.zIndex = 100;
+                    map.getPanes().overlayPane.appendChild(this._canvas);
+                    map.on('moveend', this._reset, this);
+                    map.on('zoomend', this._reset, this);
+                    this._reset();
+                },
+                onRemove: function (map) {
+                    map.getPanes().overlayPane.removeChild(this._canvas);
+                    map.off('moveend', this._reset, this);
+                    map.off('zoomend', this._reset, this);
+                },
+                _reset: function () {
+                    const bounds = this._map.getBounds();
+                    const topLeft = this._map.latLngToLayerPoint(bounds.getNorthWest());
+                    const size = this._map.getSize();
+
+                    this._canvas.width = size.x;
+                    this._canvas.height = size.y;
+                    L.DomUtil.setPosition(this._canvas, topLeft);
+
+                    this.redraw();
+                },
+                redraw: function () {
+                    const ctx = this._canvas.getContext('2d');
+                    const width = this._canvas.width;
+                    const height = this._canvas.height;
+
+                    ctx.clearRect(0, 0, width, height);
+
+                    // Loop through pixels (low res for speed)
+                    const bounds = this._map.getBounds();
+                    const north = bounds.getNorth();
+                    const west = bounds.getWest();
+                    const latRange = bounds.getSouth() - north; // negative
+                    const lngRange = bounds.getEast() - west;
+
+                    const imgData = ctx.createImageData(width, height);
+                    const data = imgData.data;
+
+                    // Optimization: Pre-filter stations that are on screen (or close to it)
+                    // to avoid iterating all 5000 stations for every pixel.
+                    const activeStations = [];
+                    if (networkTimes.size > 0) {
+                        for (const [id, time] of networkTimes) {
+                            const node = transitGraph.nodes.get(id);
+                            // Check if node is roughly within bounds (plus buffer)
+                            if (node.lat < north + 0.1 && node.lat > bounds.getSouth() - 0.1 &&
+                                node.lon > west - 0.1 && node.lon < bounds.getEast() + 0.1) {
+                                activeStations.push({ lat: node.lat, lon: node.lon, time });
+                            }
+                        }
+                    }
+
+                    for (let y = 0; y < height; y += pixelSize) {
+                        const lat = north + (y / height) * latRange;
+                        for (let x = 0; x < width; x += pixelSize) {
+                            const lng = west + (x / width) * lngRange;
+
+                            // 1. Walk Direct Time
+                            const distDirect = distHaversine(origin[0], origin[1], lat, lng);
+                            const timeWalkDirect = distDirect / WALK_SPEED_MPS;
+
+                            // 2. Transit Time
+                            let timeTransit = Infinity;
+
+                            // Find best exit station
+                            // We only check stations that are reachable (in activeStations)
+                            for (let i = 0; i < activeStations.length; i++) {
+                                const s = activeStations[i];
+                                // Simple Manhattan distance check first for speed?
+                                if (Math.abs(s.lat - lat) + Math.abs(s.lon - lng) < 0.05) {
+                                    const distExit = distHaversine(lat, lng, s.lat, s.lon);
+                                    const total = s.time + (distExit / WALK_SPEED_MPS);
+                                    if (total < timeTransit) {
+                                        timeTransit = total;
+                                    }
+                                }
+                            }
+
+                            // Min Time
+                            const totalTimeSec = Math.min(timeWalkDirect, timeTransit);
+                            const totalTimeMin = totalTimeSec / 60;
+
+                            // Color Map
+                            const color = getColor(totalTimeMin);
+
+                            // Fill pixel block
+                            for (let py = 0; py < pixelSize; py++) {
+                                for (let px = 0; px < pixelSize; px++) {
+                                    if (y + py < height && x + px < width) {
+                                        const idx = 4 * ((y + py) * width + (x + px));
+                                        data[idx] = color[0];     // R
+                                        data[idx + 1] = color[1]; // G
+                                        data[idx + 2] = color[2]; // B
+                                        data[idx + 3] = color[3]; // A
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ctx.putImageData(imgData, 0, 0);
+                }
+            });
+
+            canvasLayer = new L.CanvasLayer();
+            map.addLayer(canvasLayer);
+        }
+
+        // --- 6. UTILITIES ---
+        function getColor(minutes) {
+            // Discrete 5-minute buckets (<30m only)
+            if (minutes >= 30) {
+                return [0, 0, 0, 0]; // Transparent
+            }
+
+            const alpha = Math.floor(opacity * 255);
+
+            if (minutes < 5) {
+                return [59, 130, 246, alpha]; // 0-5: Blue (Tailwind blue-500)
+            }
+            else if (minutes < 10) {
+                return [6, 182, 212, alpha];  // 5-10: Cyan (cyan-500)
+            }
+            else if (minutes < 15) {
+                return [16, 185, 129, alpha]; // 10-15: Emerald (emerald-500)
+            }
+            else if (minutes < 20) {
+                return [132, 204, 22, alpha]; // 15-20: Lime (lime-500)
+            }
+            else if (minutes < 25) {
+                return [250, 204, 21, alpha]; // 20-25: Yellow (yellow-400)
+            }
+            else {
+                return [249, 115, 22, alpha]; // 25-30: Orange (orange-500)
+            }
+        }
+
+        async function updateOriginLabel(latlng) {
+            try {
+                const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latlng.lat}&lon=${latlng.lon}&zoom=18&addressdetails=1`);
+                const data = await resp.json();
+                const road = data.address.road || "New Location";
+                const suburb = data.address.suburb || data.address.neighbourhood || data.address.city_district || data.address.city || "Unknown Location";
+                document.getElementById('origin-label').innerText = `${road} (${suburb})`;
+
+                // Update City Title
+                const city = data.address.city || data.address.town || data.address.village || data.address.county || "NYC";
+                document.getElementById('city-title').innerText = city;
+            } catch (e) {
+                document.getElementById('origin-label').innerText = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
+            }
+        }
+
+        // UI Listeners
+        document.getElementById('opacity-slider').addEventListener('input', (e) => {
+            opacity = parseFloat(e.target.value);
+            if (canvasLayer) canvasLayer.redraw();
+        });
+
+        document.getElementById('res-select').addEventListener('change', (e) => {
+            pixelSize = parseInt(e.target.value);
+            if (canvasLayer) canvasLayer.redraw();
+        });
+
+        // Start
+        initMap();
+
+    </script>
+</body>
+
+</html>
