@@ -162,6 +162,56 @@ class TransitFetcher {
         }
     }
 
+    async loadStaticGraph(url) {
+        try {
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`Failed to load static graph: ${resp.statusText}`);
+            const data = await resp.json();
+
+            // Clear existing graph? Or append? For now, let's assume we clear if switching cities.
+            // But TransitGraph doesn't have a clear method. Let's just add to it.
+            // Ideally we should clear it.
+            this.graph.nodes.clear();
+            this.graph.stations = [];
+
+            // 1. Load Nodes
+            data.nodes.forEach(n => {
+                this.graph.addNode(n.id, n.lat, n.lon);
+            });
+
+            // 2. Load Edges
+            data.edges.forEach(e => {
+                // Static graph edges are already weighted in seconds
+                // But addEdge expects speed. 
+                // We need to modify addEdge or manually set neighbors.
+                // Let's manually set neighbors to support direct time weights.
+
+                if (this.graph.nodes.has(e.from) && this.graph.nodes.has(e.to)) {
+                    const n1 = this.graph.nodes.get(e.from);
+                    const n2 = this.graph.nodes.get(e.to);
+
+                    // Directed graph from JSON, but our engine treats as undirected usually?
+                    // The JSON edges are likely bidirectional if generated from trips in both directions.
+                    // But let's just set it as directed for now, or both if we want.
+                    // Let's trust the JSON to have both directions if needed.
+                    // But for safety, let's assume directed.
+
+                    n1.neighbors.set(e.to, e.weight);
+
+                    // If the JSON is strictly one-way (e.g. loop), we shouldn't add reverse.
+                    // But our pathfinding assumes we can move. 
+                    // Let's stick to the JSON's definition.
+                }
+            });
+
+            console.log(`Static Graph loaded: ${data.nodes.length} nodes, ${data.edges.length} edges`);
+            return data.nodes.length;
+        } catch (err) {
+            console.error(err);
+            throw err;
+        }
+    }
+
     parseData(data) {
         const elements = data.elements;
         const nodes = new Map(); // id -> {lat, lon}

@@ -1,0 +1,38 @@
+{
+  "nyc": {
+    "name": "New York City (MTA)",
+    "gtfs_url": "http://web.mta.info/developers/data/nyct/subway/google_transit.zip",
+    "center": [
+      40.7527,
+      -73.9772
+    ],
+    "zoom": 13
+  },
+  "sf": {
+    "name": "San Francisco (BART)",
+    "gtfs_url": "https://www.bart.gov/dev/schedules/google_transit.zip",
+    "center": [
+      37.7749,
+      -122.4194
+    ],
+    "zoom": 12
+  },
+  "boston": {
+    "name": "Boston (MBTA)",
+    "gtfs_url": "https://cdn.mbta.com/MBTA_GTFS.zip",
+    "center": [
+      42.3601,
+      -71.0589
+    ],
+    "zoom": 13
+  },
+  "chicago": {
+    "name": "Chicago (CTA)",
+    "gtfs_url": "https://www.transitchicago.com/downloads/sch_data/google_transit.zip",
+    "center": [
+      41.8781,
+      -87.6298
+    ],
+    "zoom": 12
+  }
+}
