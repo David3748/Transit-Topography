@@ -8,9 +8,36 @@
     ],
     "zoom": 13
   },
+  "nyc_bus_manhattan": {
+    "name": "NYC Bus (Manhattan)",
+    "gtfs_url": "http://web.mta.info/developers/data/nyct/bus/google_transit_manhattan.zip",
+    "center": [
+      40.7527,
+      -73.9772
+    ],
+    "zoom": 13
+  },
+  "nyc_bus_brooklyn": {
+    "name": "NYC Bus (Brooklyn)",
+    "gtfs_url": "http://web.mta.info/developers/data/nyct/bus/google_transit_brooklyn.zip",
+    "center": [
+      40.6782,
+      -73.9442
+    ],
+    "zoom": 13
+  },
   "sf": {
     "name": "San Francisco (BART)",
     "gtfs_url": "https://www.bart.gov/dev/schedules/google_transit.zip",
+    "center": [
+      37.7749,
+      -122.4194
+    ],
+    "zoom": 12
+  },
+  "sf_muni": {
+    "name": "San Francisco (Muni)",
+    "gtfs_url": "https://transitfeeds.com/p/sfmta/60/latest/download",
     "center": [
       37.7749,
       -122.4194

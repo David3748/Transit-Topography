@@ -141,6 +141,14 @@
                     </select>
                 </div>
 
+                <!-- Bus Toggle -->
+                <div class="mb-3 flex items-center">
+                    <input id="bus-toggle" type="checkbox"
+                        class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                    <label for="bus-toggle" class="ml-2 text-xs font-medium text-gray-700">Include Buses
+                        (Slower)</label>
+                </div>
+
                 <button id="fetch-stations-btn"
                     class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
@@ -170,6 +178,7 @@
         // --- 1. DATA: Dynamic Stations ---
         let transitGraph = new TransitGraph();
         let transitFetcher = new TransitFetcher(transitGraph);
+        let waterMask = new WaterMask(); // Initialize WaterMask
         let networkTimes = new Map(); // id -> time (seconds)
 
 
@@ -267,11 +276,35 @@
 
         // --- 3.2 DATA FETCHING (STATIC GRAPH) ---
         const CITIES = {
-            'nyc': { center: [40.7527, -73.9772], zoom: 13, file: 'transit_data/nyc.json' },
-            'sf': { center: [37.7749, -122.4194], zoom: 12, file: 'transit_data/sf.json' },
-            'boston': { center: [42.3601, -71.0589], zoom: 13, file: 'transit_data/boston.json' },
-            'chicago': { center: [41.8781, -87.6298], zoom: 12, file: 'transit_data/chicago.json' },
-            'other': { center: null, zoom: null, file: null }
+            'nyc': {
+                center: [40.7527, -73.9772],
+                zoom: 13,
+                files: ['transit_data/nyc.json'],
+                busFiles: ['transit_data/nyc_bus.json', 'transit_data/nyc_bus_manhattan_bus.json', 'transit_data/nyc_bus_brooklyn_bus.json'],
+                water: 'transit_data/water_nyc.json'
+            },
+            'sf': {
+                center: [37.7749, -122.4194],
+                zoom: 12,
+                files: ['transit_data/sf.json', 'transit_data/sf_muni.json'],
+                busFiles: ['transit_data/sf_bus.json', 'transit_data/sf_muni_bus.json'],
+                water: 'transit_data/water_sf.json'
+            },
+            'boston': {
+                center: [42.3601, -71.0589],
+                zoom: 13,
+                files: ['transit_data/boston.json'],
+                busFiles: ['transit_data/boston_bus.json'],
+                water: 'transit_data/water_boston.json'
+            },
+            'chicago': {
+                center: [41.8781, -87.6298],
+                zoom: 12,
+                files: ['transit_data/chicago.json'],
+                busFiles: ['transit_data/chicago_bus.json'],
+                water: 'transit_data/water_chicago.json'
+            },
+            'other': { center: null, zoom: null, files: [], busFiles: [], water: null }
         };
 
         function initDataFetching() {
@@ -279,6 +312,7 @@
             const countLabel = document.getElementById('station-count');
             const loading = document.getElementById('loading-overlay');
             const citySelect = document.getElementById('city-select');
+            const busToggle = document.getElementById('bus-toggle');
 
             // Handle City Change
             citySelect.addEventListener('change', (e) => {
@@ -307,9 +341,38 @@
                     countLabel.classList.add('hidden');
 
                     let count = 0;
-                    if (city && city.file) {
-                        // Load Static Graph
-                        count = await transitFetcher.loadStaticGraph(city.file);
+                    if (city && city.files && city.files.length > 0) {
+                        // Clear graph first
+                        transitGraph.clear();
+
+                        // Load Static Graph Files (Rail)
+                        for (const file of city.files) {
+                            try {
+                                // Pass clear=false for all but the first one? 
+                                // Actually, we cleared explicitly above. So pass clear=false always.
+                                await transitFetcher.loadStaticGraph(file, false);
+                            } catch (e) {
+                                console.warn(`Failed to load ${file}:`, e);
+                            }
+                        }
+
+                        // Load Bus Data if toggled
+                        if (busToggle.checked && city.busFiles) {
+                            for (const file of city.busFiles) {
+                                try {
+                                    await transitFetcher.loadStaticGraph(file, false);
+                                } catch (e) {
+                                    console.warn("Bus data not found or failed to load:", e);
+                                }
+                            }
+                        }
+
+                        count = transitGraph.stations.length;
+
+                        // Load Water Data
+                        if (city.water) {
+                            await waterMask.loadWaterData(city.water);
+                        }
                     } else {
                         // Load Dynamic (Overpass)
                         const bounds = map.getBounds();
@@ -528,6 +591,39 @@
 
                     ctx.clearRect(0, 0, width, height);
 
+                    // Update Water Mask Canvas
+                    waterMask.updateCanvas(this._map);
+                    const waterCtx = waterMask.ctx;
+                    // Get water data for collision check
+                    // Optimization: We can't call getImageData for every pixel.
+                    // We should get the whole buffer once.
+                    const waterData = waterCtx.getImageData(0, 0, width, height).data;
+
+                    // Helper to check if a point is water
+                    const isWater = (x, y) => {
+                        if (x < 0 || x >= width || y < 0 || y >= height) return false;
+                        const idx = 4 * (Math.floor(y) * width + Math.floor(x));
+                        // We drew black (0,0,0,255). So alpha > 0 means water.
+                        return waterData[idx + 3] > 100;
+                    };
+
+                    // Helper to check path safety (Bresenham-ish)
+                    const isPathSafe = (x1, y1, x2, y2) => {
+                        // Simple sampling
+                        const dx = x2 - x1;
+                        const dy = y2 - y1;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        const steps = Math.max(Math.floor(dist / 5), 1); // Check every 5 pixels
+
+                        for (let i = 0; i <= steps; i++) {
+                            const t = i / steps;
+                            const cx = x1 + dx * t;
+                            const cy = y1 + dy * t;
+                            if (isWater(cx, cy)) return false;
+                        }
+                        return true;
+                    };
+
                     // Loop through pixels (low res for speed)
                     const bounds = this._map.getBounds();
                     const north = bounds.getNorth();
@@ -553,13 +649,20 @@
                     }
 
                     for (let y = 0; y < height; y += pixelSize) {
-                        const lat = north + (y / height) * latRange;
+                        // Sample center of block for better accuracy
+                        const lat = north + ((y + pixelSize / 2) / height) * latRange;
                         for (let x = 0; x < width; x += pixelSize) {
-                            const lng = west + (x / width) * lngRange;
+                            const lng = west + ((x + pixelSize / 2) / width) * lngRange;
 
                             // 1. Walk Direct Time
-                            const distDirect = distHaversine(origin[0], origin[1], lat, lng);
-                            const timeWalkDirect = distDirect / WALK_SPEED_MPS;
+                            const originPt = this._map.latLngToContainerPoint(origin);
+                            const targetPt = { x: x + pixelSize / 2, y: y + pixelSize / 2 }; // Center pixel
+
+                            let timeWalkDirect = Infinity;
+                            if (isPathSafe(originPt.x, originPt.y, targetPt.x, targetPt.y)) {
+                                const distDirect = distHaversine(origin[0], origin[1], lat, lng);
+                                timeWalkDirect = distDirect / WALK_SPEED_MPS;
+                            }
 
                             // 2. Transit Time
                             let timeTransit = Infinity;
@@ -572,8 +675,13 @@
                                 if (Math.abs(s.lat - lat) + Math.abs(s.lon - lng) < 0.05) {
                                     const distExit = distHaversine(lat, lng, s.lat, s.lon);
                                     const total = s.time + (distExit / WALK_SPEED_MPS);
+
                                     if (total < timeTransit) {
-                                        timeTransit = total;
+                                        // Check walk safety from station to pixel
+                                        const stationPt = this._map.latLngToContainerPoint([s.lat, s.lon]);
+                                        if (isPathSafe(stationPt.x, stationPt.y, targetPt.x, targetPt.y)) {
+                                            timeTransit = total;
+                                        }
                                     }
                                 }
                             }

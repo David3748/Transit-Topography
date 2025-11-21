@@ -17,6 +17,11 @@ class TransitGraph {
         }
     }
 
+    clear() {
+        this.nodes.clear();
+        this.stations = [];
+    }
+
     addEdge(id1, id2, speedMps) {
         if (!this.nodes.has(id1) || !this.nodes.has(id2)) return;
 
@@ -41,49 +46,83 @@ class TransitGraph {
     }
 
     generateTransferEdges(distanceThreshold = 200) {
-        const nodeIds = Array.from(this.nodes.keys());
+        const nodes = Array.from(this.nodes.values());
         let edgesAdded = 0;
 
-        for (let i = 0; i < nodeIds.length; i++) {
-            for (let j = i + 1; j < nodeIds.length; j++) {
-                const id1 = nodeIds[i];
-                const id2 = nodeIds[j];
-                const n1 = this.nodes.get(id1);
-                const n2 = this.nodes.get(id2);
+        // Spatial Indexing (Grid)
+        const cellSize = distanceThreshold;
+        const grid = new Map(); // "x,y" -> [node]
 
-                const dist = this.distHaversine(n1.lat, n1.lon, n2.lat, n2.lon);
+        const getKey = (lat, lon) => {
+            // Simple projection approximation for grid key
+            // 1 deg lat ~ 111km. 200m ~ 0.0018 deg
+            // 1 deg lon ~ 111km * cos(lat).
+            // Let's just use a rough multiplier for bucketing.
+            // 1 unit ~ distanceThreshold meters
+            // lat * 111000 / distanceThreshold
+            const y = Math.floor(lat * 111000 / cellSize);
+            const x = Math.floor(lon * 111000 * Math.cos(lat * Math.PI / 180) / cellSize);
+            return `${x},${y}`;
+        };
 
-                if (dist <= distanceThreshold) {
-                    // Add walking edge (1.3 m/s)
-                    const time = dist / 1.3;
+        // Populate Grid
+        nodes.forEach(n => {
+            const key = getKey(n.lat, n.lon);
+            if (!grid.has(key)) grid.set(key, []);
+            grid.get(key).push(n);
+        });
 
-                    // Check if edge already exists (e.g. from relation) and is faster
-                    // If not, add/update it
-                    if (!n1.neighbors.has(id2) || n1.neighbors.get(id2) > time) {
-                        n1.neighbors.set(id2, time);
-                        n2.neighbors.set(id1, time);
-                        edgesAdded++;
+        // Check neighbors
+        nodes.forEach(n1 => {
+            const key = getKey(n1.lat, n1.lon);
+            const [kx, ky] = key.split(',').map(Number);
+
+            // Check 3x3 grid around cell
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    const neighborKey = `${kx + dx},${ky + dy}`;
+                    const cellNodes = grid.get(neighborKey);
+                    if (!cellNodes) continue;
+
+                    for (const n2 of cellNodes) {
+                        if (n1.id === n2.id) continue; // Skip self
+                        // Avoid duplicates: only add if id1 < id2? 
+                        // Or just check if edge exists.
+                        // Since we iterate all nodes, we will see (A, B) and (B, A).
+                        // Let's just add if distance is good.
+
+                        const dist = this.distHaversine(n1.lat, n1.lon, n2.lat, n2.lon);
+
+                        if (dist <= distanceThreshold) {
+                            const time = dist / 1.3;
+                            if (!n1.neighbors.has(n2.id) || n1.neighbors.get(n2.id) > time) {
+                                n1.neighbors.set(n2.id, time);
+                                // n2.neighbors.set(n1.id, time); // Will be handled when n2 is n1
+                                edgesAdded++;
+                            }
+                        }
                     }
                 }
             }
-        }
-        console.log(`Generated ${edgesAdded} transfer edges (threshold: ${distanceThreshold}m)`);
+        });
+
+        console.log(`Generated transfer edges (threshold: ${distanceThreshold}m) using Spatial Index`);
     }
 
     // Calculate travel times from a set of start nodes to ALL other nodes
     calculateNetworkTimes(startNodes, transferPenalty) {
         const times = new Map(); // id -> time (seconds)
-        const pq = new PriorityQueue();
+        const pq = new BinaryHeap();
 
         // Initialize
         startNodes.forEach(start => {
             // start is { id, initialWalkTime }
             times.set(start.id, start.initialWalkTime + transferPenalty);
-            pq.enqueue(start.id, start.initialWalkTime + transferPenalty);
+            pq.push({ id: start.id, time: start.initialWalkTime + transferPenalty });
         });
 
-        while (!pq.isEmpty()) {
-            const { element: currId, priority: currTime } = pq.dequeue();
+        while (pq.size() > 0) {
+            const { id: currId, time: currTime } = pq.pop();
 
             if (currTime > times.get(currId)) continue;
 
@@ -95,7 +134,7 @@ class TransitGraph {
 
                 if (!times.has(neighborId) || newTime < times.get(neighborId)) {
                     times.set(neighborId, newTime);
-                    pq.enqueue(neighborId, newTime);
+                    pq.push({ id: neighborId, time: newTime });
                 }
             }
         }
@@ -104,23 +143,71 @@ class TransitGraph {
     }
 }
 
-// Simple Priority Queue
-class PriorityQueue {
+// Binary Heap Priority Queue (Min Heap)
+class BinaryHeap {
     constructor() {
-        this.values = [];
+        this.content = [];
     }
-    enqueue(element, priority) {
-        this.values.push({ element, priority });
-        this.sort();
+
+    push(element) {
+        this.content.push(element);
+        this.bubbleUp(this.content.length - 1);
     }
-    dequeue() {
-        return this.values.shift();
+
+    pop() {
+        const result = this.content[0];
+        const end = this.content.pop();
+        if (this.content.length > 0) {
+            this.content[0] = end;
+            this.sinkDown(0);
+        }
+        return result;
     }
-    isEmpty() {
-        return this.values.length === 0;
+
+    size() {
+        return this.content.length;
     }
-    sort() {
-        this.values.sort((a, b) => a.priority - b.priority);
+
+    bubbleUp(n) {
+        const element = this.content[n];
+        while (n > 0) {
+            const parentN = Math.floor((n + 1) / 2) - 1;
+            const parent = this.content[parentN];
+            if (element.time >= parent.time) break;
+            this.content[parentN] = element;
+            this.content[n] = parent;
+            n = parentN;
+        }
+    }
+
+    sinkDown(n) {
+        const length = this.content.length;
+        const element = this.content[n];
+        const elemTime = element.time;
+
+        while (true) {
+            const child2N = (n + 1) * 2;
+            const child1N = child2N - 1;
+            let swap = null;
+            let child1Time;
+
+            if (child1N < length) {
+                const child1 = this.content[child1N];
+                child1Time = child1.time;
+                if (child1Time < elemTime) swap = child1N;
+            }
+
+            if (child2N < length) {
+                const child2 = this.content[child2N];
+                const child2Time = child2.time;
+                if (child2Time < (swap === null ? elemTime : child1Time)) swap = child2N;
+            }
+
+            if (swap === null) break;
+            this.content[n] = this.content[swap];
+            this.content[swap] = element;
+            n = swap;
+        }
     }
 }
 
@@ -162,17 +249,17 @@ class TransitFetcher {
         }
     }
 
-    async loadStaticGraph(url) {
+    async loadStaticGraph(url, clear = true) {
         try {
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`Failed to load static graph: ${resp.statusText}`);
             const data = await resp.json();
 
-            // Clear existing graph? Or append? For now, let's assume we clear if switching cities.
-            // But TransitGraph doesn't have a clear method. Let's just add to it.
-            // Ideally we should clear it.
-            this.graph.nodes.clear();
-            this.graph.stations = [];
+            // Clear existing graph if requested
+            if (clear) {
+                this.graph.nodes.clear();
+                this.graph.stations = [];
+            }
 
             // 1. Load Nodes
             data.nodes.forEach(n => {
@@ -259,5 +346,74 @@ class TransitFetcher {
         });
 
         console.log(`Graph built: ${this.graph.nodes.size} nodes`);
+    }
+}
+
+class WaterMask {
+    constructor() {
+        this.canvas = document.createElement('canvas');
+        this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+        this.polygons = []; // Array of arrays of points [[lat, lon], ...]
+        this.isLoaded = false;
+    }
+
+    async loadWaterData(url) {
+        try {
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`Failed to load water data: ${resp.statusText}`);
+            const data = await resp.json();
+
+            this.polygons = [];
+
+            // Parse Overpass JSON
+            data.elements.forEach(el => {
+                if (el.type === 'way' && el.geometry) {
+                    const poly = el.geometry.map(p => [p.lat, p.lon]);
+                    this.polygons.push(poly);
+                } else if (el.type === 'relation' && el.members) {
+                    el.members.forEach(m => {
+                        if (m.role === 'outer' && m.geometry) {
+                            const poly = m.geometry.map(p => [p.lat, p.lon]);
+                            this.polygons.push(poly);
+                        }
+                    });
+                }
+            });
+
+            this.isLoaded = true;
+            console.log(`Water Mask loaded: ${this.polygons.length} polygons`);
+        } catch (err) {
+            console.error("Error loading water mask:", err);
+            this.isLoaded = false;
+        }
+    }
+
+    updateCanvas(map) {
+        if (!this.isLoaded) return;
+
+        const size = map.getSize();
+        if (this.canvas.width !== size.x || this.canvas.height !== size.y) {
+            this.canvas.width = size.x;
+            this.canvas.height = size.y;
+        }
+
+        this.ctx.clearRect(0, 0, size.x, size.y);
+        this.ctx.fillStyle = 'black'; // Water is black
+
+        this.polygons.forEach(poly => {
+            this.ctx.beginPath();
+            let first = true;
+            poly.forEach(pt => {
+                const point = map.latLngToContainerPoint(pt);
+                if (first) {
+                    this.ctx.moveTo(point.x, point.y);
+                    first = false;
+                } else {
+                    this.ctx.lineTo(point.x, point.y);
+                }
+            });
+            this.ctx.closePath();
+            this.ctx.fill();
+        });
     }
 }
