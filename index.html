@@ -4,15 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NYC Transit Topography</title>
+    <title>Transit Topography</title>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- Leaflet CSS (Integrity removed for stability) -->
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
-    <!-- Leaflet JS (Integrity removed for stability) -->
+    <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <!-- Fonts -->
@@ -34,6 +34,16 @@
             backdrop-filter: blur(12px);
             border: 1px solid rgba(0, 0, 0, 0.05);
             box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Progress bar animation */
+        @keyframes progress-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .progress-pulse {
+            animation: progress-pulse 1.5s ease-in-out infinite;
         }
     </style>
 
@@ -76,7 +86,7 @@
                 </ul>
             </div>
 
-            <p class="text-xs text-gray-500 mt-1">Click address to search or click map to move.</p>
+            <p class="text-xs text-gray-500 mt-1">Click address to search, click map to move, or right-click for travel time.</p>
         </div>
 
         <div class="mb-6">
@@ -172,609 +182,281 @@
         </div>
     </div>
 
-    <script>
-        // --- 1. DATA: NYC Subway Stations (Selected Major Hubs & Lines) ---
-        // --- 1. DATA: Dynamic Stations ---
-        // --- 1. DATA: Dynamic Stations ---
-        let transitGraph = new TransitGraph();
-        let transitFetcher = new TransitFetcher(transitGraph);
-        let waterMask = new WaterMask(); // Initialize WaterMask
-        let networkTimes = new Map(); // id -> time (seconds)
+    <!-- Progress Overlay (for rendering) -->
+    <div id="progress-overlay"
+        class="fixed bottom-4 right-4 z-[2000] hidden glass-panel px-4 py-2 rounded-lg">
+        <div class="flex items-center gap-2">
+            <div class="w-3 h-3 bg-blue-600 rounded-full progress-pulse"></div>
+            <span class="progress-text text-sm font-medium text-gray-700">Computing...</span>
+        </div>
+    </div>
 
+    <!-- Share Button -->
+    <button id="share-btn" 
+        class="fixed bottom-4 left-4 z-[1000] glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+        title="Copy shareable link">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+        </svg>
+        Share Location
+    </button>
 
-        // --- 2. CONFIGURATION ---
-        const WALK_SPEED_MPS = 1.3; // ~4.7 km/h
-        const SUBWAY_SPEED_MPS = 8.3; // ~30 km/h (Average including stops)
-        const TRANSFER_PENALTY_SEC = 300; // 5 mins to enter/wait
+    <script type="module" src="js/app.js"></script>
 
-        let origin = [40.7527, -73.9772]; // Default: Grand Central
-        let canvasLayer = null;
-        let map = null;
-        let opacity = 0.6;
-        let pixelSize = 4; // Resolution (Higher number = blockier but faster)
-
-        // --- 3. INITIALIZE MAP ---
-        function initMap() {
-            if (typeof L === 'undefined') {
-                alert('Leaflet library failed to load. Please check your internet connection.');
-                return;
+    <!-- Fallback for non-module browsers -->
+    <script nomodule>
+        // Fallback inline script for browsers that don't support modules
+        console.warn('ES Modules not supported, loading fallback...');
+        
+        // Load the original inline implementation as fallback
+        document.addEventListener('DOMContentLoaded', function() {
+            // Configuration
+            const WALK_SPEED_MPS = 1.3;
+            const TRANSFER_PENALTY_SEC = 300;
+            let origin = [40.7527, -73.9772];
+            let opacity = 0.6;
+            let pixelSize = 4;
+            
+            const transitGraph = new TransitGraph();
+            const transitFetcher = new TransitFetcher(transitGraph);
+            const waterMask = new WaterMask();
+            let networkTimes = new Map();
+            let map, canvasLayer, originMarker;
+            
+            // City configs
+            const CITIES = {
+                'nyc': { center: [40.7527, -73.9772], zoom: 13, files: ['transit_data/nyc.json'], busFiles: ['transit_data/nyc_bus_manhattan_bus.json', 'transit_data/nyc_bus_brooklyn_bus.json'], water: 'transit_data/water_nyc.json' },
+                'sf': { center: [37.7749, -122.4194], zoom: 12, files: ['transit_data/sf.json', 'transit_data/sf_muni.json'], busFiles: ['transit_data/sf_bus.json', 'transit_data/sf_muni_bus.json'], water: 'transit_data/water_sf.json' },
+                'boston': { center: [42.3601, -71.0589], zoom: 13, files: ['transit_data/boston.json'], busFiles: ['transit_data/boston_bus.json'], water: 'transit_data/water_boston.json' },
+                'chicago': { center: [41.8781, -87.6298], zoom: 12, files: ['transit_data/chicago.json'], busFiles: ['transit_data/chicago_bus.json'], water: 'transit_data/water_chicago.json' },
+                'other': { center: null, zoom: null, files: [], busFiles: [], water: null }
+            };
+            
+            function distHaversine(lat1, lon1, lat2, lon2) {
+                const R = 6371000;
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             }
-
-            // Use a LIGHT map style (Google Maps / Docs style)
-            map = L.map('map', {
-                zoomControl: false,
-                attributionControl: false
-            }).setView(origin, 13);
-
-            // CartoDB Positron (Light/Gray/Clean)
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19,
-                subdomains: 'abcd'
-            }).addTo(map);
-
+            
+            function getColor(minutes) {
+                if (minutes >= 30) return [0, 0, 0, 0];
+                const alpha = Math.floor(opacity * 255);
+                if (minutes < 5) return [59, 130, 246, alpha];
+                if (minutes < 10) return [6, 182, 212, alpha];
+                if (minutes < 15) return [16, 185, 129, alpha];
+                if (minutes < 20) return [132, 204, 22, alpha];
+                if (minutes < 25) return [250, 204, 21, alpha];
+                return [249, 115, 22, alpha];
+            }
+            
+            function initMap() {
+                map = L.map('map', { zoomControl: false, attributionControl: false }).setView(origin, 13);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }).addTo(map);
             L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-            // Add Origin Marker
             const markerIcon = L.divIcon({
                 className: 'custom-div-icon',
                 html: "<div style='background-color: #2563eb; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);'></div>",
-                iconSize: [16, 16],
-                iconAnchor: [8, 8]
-            });
-
-            let originMarker = L.marker(origin, { icon: markerIcon }).addTo(map);
-
-            // Event: Click to move origin
-            map.on('click', function (e) {
-                // Explicitly use window.updateOrigin to ensure correct scope
-                if (window.updateOrigin) {
-                    window.updateOrigin(e.latlng.lat, e.latlng.lng);
-                }
-            });
-
-            // Define helper function globally
-            window.updateOrigin = function (lat, lng, labelText = null) {
+                    iconSize: [16, 16], iconAnchor: [8, 8]
+                });
+                originMarker = L.marker(origin, { icon: markerIcon }).addTo(map);
+                
+                map.on('click', e => updateOrigin(e.latlng.lat, e.latlng.lng));
+                initCanvasLayer();
+                initDataFetching();
+            }
+            
+            function updateOrigin(lat, lng, label) {
                 origin = [lat, lng];
                 originMarker.setLatLng(origin);
-                map.panTo(origin); // Center map on new location
-
-                if (labelText) {
-                    document.getElementById('origin-label').innerText = labelText;
-                } else {
-                    updateOriginLabel({ lat, lon: lng });
-                }
-
-                // --- NEW: Calculate Network Times ---
+                map.panTo(origin);
+                document.getElementById('origin-label').innerText = label || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+                
                 if (transitGraph.nodes.size > 0) {
                     const entryNodes = [];
-                    // Find all stations within reasonable walking distance (e.g. 2km)
                     for (const [id, node] of transitGraph.nodes) {
                         const dist = transitGraph.distHaversine(lat, lng, node.lat, node.lon);
-                        if (dist < 2000) { // Optimization: don't walk 10km to a station
-                            const walkTime = dist / WALK_SPEED_MPS;
-                            entryNodes.push({ id, initialWalkTime: walkTime });
-                        }
+                        if (dist < 2000) entryNodes.push({ id, initialWalkTime: dist / WALK_SPEED_MPS });
                     }
-
-                    // Dijkstra from these entry points
                     networkTimes = transitGraph.calculateNetworkTimes(entryNodes, TRANSFER_PENALTY_SEC);
                 }
-
                 if (canvasLayer) canvasLayer.redraw();
             }
 
-            // Setup Canvas Overlay
-            initCanvasLayer();
-
-            // Setup Address Search Interactions
-            // Initialize LocationIQ
-            initLocationIQ();
-
-            // Setup Data Fetching
-            initDataFetching();
-        }
-
-        // --- 3.2 DATA FETCHING (STATIC GRAPH) ---
-        const CITIES = {
-            'nyc': {
-                center: [40.7527, -73.9772],
-                zoom: 13,
-                files: ['transit_data/nyc.json'],
-                busFiles: ['transit_data/nyc_bus.json', 'transit_data/nyc_bus_manhattan_bus.json', 'transit_data/nyc_bus_brooklyn_bus.json'],
-                water: 'transit_data/water_nyc.json'
-            },
-            'sf': {
-                center: [37.7749, -122.4194],
-                zoom: 12,
-                files: ['transit_data/sf.json', 'transit_data/sf_muni.json'],
-                busFiles: ['transit_data/sf_bus.json', 'transit_data/sf_muni_bus.json'],
-                water: 'transit_data/water_sf.json'
-            },
-            'boston': {
-                center: [42.3601, -71.0589],
-                zoom: 13,
-                files: ['transit_data/boston.json'],
-                busFiles: ['transit_data/boston_bus.json'],
-                water: 'transit_data/water_boston.json'
-            },
-            'chicago': {
-                center: [41.8781, -87.6298],
-                zoom: 12,
-                files: ['transit_data/chicago.json'],
-                busFiles: ['transit_data/chicago_bus.json'],
-                water: 'transit_data/water_chicago.json'
-            },
-            'other': { center: null, zoom: null, files: [], busFiles: [], water: null }
-        };
-
-        function initDataFetching() {
-            const btn = document.getElementById('fetch-stations-btn');
-            const countLabel = document.getElementById('station-count');
-            const loading = document.getElementById('loading-overlay');
-            const citySelect = document.getElementById('city-select');
-            const busToggle = document.getElementById('bus-toggle');
-
-            // Handle City Change
-            citySelect.addEventListener('change', (e) => {
-                const cityKey = e.target.value;
-                const city = CITIES[cityKey];
-                if (city) {
-                    // Move map if center is defined
-                    if (city.center) {
-                        origin = city.center;
-                        map.setView(origin, city.zoom);
-                        if (window.updateOrigin) {
-                            window.updateOrigin(origin[0], origin[1], "City Center");
+            function initCanvasLayer() {
+                L.CanvasLayer = L.Layer.extend({
+                    onAdd: function(m) {
+                        this._map = m;
+                        this._canvas = L.DomUtil.create('canvas', 'leaflet-zoom-animated');
+                        this._canvas.style.pointerEvents = 'none';
+                        this._canvas.style.zIndex = 100;
+                        this._canvas.style.willChange = 'transform';
+                        m.getPanes().overlayPane.appendChild(this._canvas);
+                        this._lastBounds = null;
+                        m.on('move', this._onMove, this);
+                        m.on('moveend zoomend', this._reset, this);
+                        m.on('zoomanim', this._onZoomAnim, this);
+                        this._reset();
+                    },
+                    onRemove: function(m) {
+                        m.getPanes().overlayPane.removeChild(this._canvas);
+                        m.off('move', this._onMove, this);
+                        m.off('moveend zoomend', this._reset, this);
+                        m.off('zoomanim', this._onZoomAnim, this);
+                    },
+                    _onMove: function() {
+                        if (this._lastBounds) {
+                            const topLeft = this._map.latLngToLayerPoint(this._lastBounds.getNorthWest());
+                            L.DomUtil.setPosition(this._canvas, topLeft);
                         }
-                        // Auto-load for predefined cities
-                        btn.click();
-                    }
-                }
-            });
-
-            btn.addEventListener('click', async () => {
-                const cityKey = citySelect.value;
-                const city = CITIES[cityKey];
-
-                try {
-                    loading.classList.remove('hidden');
-                    countLabel.classList.add('hidden');
-
-                    let count = 0;
-                    if (city && city.files && city.files.length > 0) {
-                        // Clear graph first
-                        transitGraph.clear();
-
-                        // Load Static Graph Files (Rail)
-                        for (const file of city.files) {
-                            try {
-                                // Pass clear=false for all but the first one? 
-                                // Actually, we cleared explicitly above. So pass clear=false always.
-                                await transitFetcher.loadStaticGraph(file, false);
-                            } catch (e) {
-                                console.warn(`Failed to load ${file}:`, e);
-                            }
+                    },
+                    _onZoomAnim: function(e) {
+                        if (this._lastBounds) {
+                            const scale = this._map.getZoomScale(e.zoom);
+                            const offset = this._map._latLngBoundsToNewLayerBounds(this._lastBounds, e.zoom, e.center).min;
+                            L.DomUtil.setTransform(this._canvas, offset, scale);
                         }
-
-                        // Load Bus Data if toggled
-                        if (busToggle.checked && city.busFiles) {
-                            for (const file of city.busFiles) {
-                                try {
-                                    await transitFetcher.loadStaticGraph(file, false);
-                                } catch (e) {
-                                    console.warn("Bus data not found or failed to load:", e);
-                                }
-                            }
-                        }
-
-                        count = transitGraph.stations.length;
-
-                        // Load Water Data
-                        if (city.water) {
-                            await waterMask.loadWaterData(city.water);
-                        }
-                    } else {
-                        // Load Dynamic (Overpass)
-                        const bounds = map.getBounds();
-                        count = await transitFetcher.fetchRoutes(bounds);
-                    }
-
-                    // 2. Generate Transfers (still needed for walking connections between lines)
-                    transitGraph.generateTransferEdges(200);
-
-                    countLabel.innerText = `Loaded ${count} stations for ${cityKey.toUpperCase()}`;
-                    countLabel.classList.remove('hidden');
-
-                    // 3. Recalculate Times
-                    if (window.updateOrigin) {
-                        window.updateOrigin(origin[0], origin[1]);
-                    }
-
-                } catch (err) {
-                    console.error(err);
-                    alert(`Failed to load data for ${cityKey}. Make sure generate_city_data.py has been run.\nError: ${err.message}`);
-                } finally {
-                    loading.classList.add('hidden');
-                }
-            });
-        }
-
-        // --- 3.5 ADDRESS SEARCH LOGIC (LOCATIONIQ) ---
-        function initLocationIQ() {
-            const label = document.getElementById('origin-label');
-            const container = document.getElementById('search-container');
-            const input = document.getElementById('origin-input');
-            const list = document.getElementById('suggestions-list');
-
-            // Show input on click
-            label.addEventListener('click', () => {
-                label.classList.add('hidden');
-                container.classList.remove('hidden');
-                input.value = "";
-                input.focus();
-            });
-
-            // Debounce utility
-            let debounceTimer;
-            const debounce = (func, delay) => {
-                return (...args) => {
-                    clearTimeout(debounceTimer);
-                    debounceTimer = setTimeout(() => func.apply(this, args), delay);
-                };
-            };
-
-            // Normalize query for better OSM matching (e.g. "Fifth" -> "5th")
-            const normalizeQuery = (q) => {
-                const replacements = {
-                    'first': '1st', 'second': '2nd', 'third': '3rd', 'fourth': '4th', 'fifth': '5th',
-                    'sixth': '6th', 'seventh': '7th', 'eighth': '8th', 'ninth': '9th', 'tenth': '10th'
-                };
-                return q.replace(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/gi, (match) => {
-                    return replacements[match.toLowerCase()];
-                });
-            };
-
-            // Fetch suggestions
-            const fetchSuggestions = async (rawQuery) => {
-                if (!rawQuery || rawQuery.length < 3) {
-                    list.classList.add('hidden');
-                    return;
-                }
-
-                if (typeof LOCATIONIQ_API_KEY === 'undefined' || LOCATIONIQ_API_KEY === 'YOUR_LOCATIONIQ_API_KEY') {
-                    console.warn("LocationIQ API Key not set.");
-                    return;
-                }
-
-                const query = normalizeQuery(rawQuery);
-
-                try {
-                    // LocationIQ Autocomplete API
-                    // Removed viewbox and countrycodes to allow global search
-                    const url = `https://api.locationiq.com/v1/autocomplete?key=${LOCATIONIQ_API_KEY}&q=${encodeURIComponent(query)}&limit=5&dedupe=1`;
-
-                    const resp = await fetch(url);
-                    if (!resp.ok) throw new Error("LocationIQ API Error: " + resp.statusText);
-                    const data = await resp.json();
-
-                    renderSuggestions(data);
-                } catch (e) {
-                    console.error("Search error", e);
-                }
-            };
-
-            // Render dropdown
-            const renderSuggestions = (results) => {
-                list.innerHTML = '';
-                if (!results || results.length === 0) {
-                    list.classList.add('hidden');
-                    return;
-                }
-
-                results.forEach(item => {
-                    const li = document.createElement('li');
-                    li.className = "px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 text-sm text-gray-700 last:border-0";
-
-                    // LocationIQ returns 'display_name' and 'address' object
-                    const name = item.display_name.split(',')[0];
-                    const address = item.display_name.substring(name.length + 2);
-
-                    li.innerHTML = `
-                        <div class="font-semibold text-gray-900">${name}</div>
-                        <div class="text-xs text-gray-500 truncate">${address}</div>
-                    `;
-
-                    li.addEventListener('click', () => {
-                        selectLocation(item);
-                    });
-
-                    list.appendChild(li);
-                });
-
-                list.classList.remove('hidden');
-                input.classList.remove('rounded');
-                input.classList.add('rounded-t');
-            };
-
-            const selectLocation = (item) => {
-                const lat = parseFloat(item.lat);
-                const lon = parseFloat(item.lon);
-                const name = item.display_name.split(',')[0];
-
-                if (window.updateOrigin) {
-                    window.updateOrigin(lat, lon, name);
-                }
-
-                // Reset UI
-                list.classList.add('hidden');
-                container.classList.add('hidden');
-                label.classList.remove('hidden');
-                input.classList.add('rounded');
-                input.classList.remove('rounded-t');
-            };
-
-            // Input listener
-            input.addEventListener('input', debounce((e) => {
-                fetchSuggestions(e.target.value);
-            }, 300));
-
-            // Handle Enter key (pick first result)
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const firstItem = list.querySelector('li');
-                    if (firstItem) {
-                        firstItem.click();
-                    }
-                }
-                if (e.key === 'Escape') {
-                    list.classList.add('hidden');
-                    container.classList.add('hidden');
-                    label.classList.remove('hidden');
-                }
-            });
-
-            // Click outside to close
-            document.addEventListener('click', (e) => {
-                if (!container.classList.contains('hidden') && !container.contains(e.target) && !label.contains(e.target)) {
-                    list.classList.add('hidden');
-                    container.classList.add('hidden');
-                    label.classList.remove('hidden');
-                }
-            });
-        }
-
-        // --- 4. GEO-MATH HELPERS ---
-        function distHaversine(lat1, lon1, lat2, lon2) {
-            const R = 6371000; // meters
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c;
-        }
-
-        // --- 5. CANVAS LAYER (THE CORE LOGIC) ---
-        function initCanvasLayer() {
-            L.CanvasLayer = L.Layer.extend({
-                onAdd: function (map) {
-                    this._map = map;
-                    this._canvas = L.DomUtil.create('canvas', 'leaflet-zoom-hide');
-                    this._canvas.style.pointerEvents = 'none'; // Let clicks pass through
-                    this._canvas.style.zIndex = 100;
-                    map.getPanes().overlayPane.appendChild(this._canvas);
-                    map.on('moveend', this._reset, this);
-                    map.on('zoomend', this._reset, this);
-                    this._reset();
-                },
-                onRemove: function (map) {
-                    map.getPanes().overlayPane.removeChild(this._canvas);
-                    map.off('moveend', this._reset, this);
-                    map.off('zoomend', this._reset, this);
-                },
-                _reset: function () {
+                    },
+                    _reset: function() {
                     const bounds = this._map.getBounds();
                     const topLeft = this._map.latLngToLayerPoint(bounds.getNorthWest());
                     const size = this._map.getSize();
-
+                        this._canvas.style.transform = '';
                     this._canvas.width = size.x;
                     this._canvas.height = size.y;
                     L.DomUtil.setPosition(this._canvas, topLeft);
-
+                        this._lastBounds = bounds;
                     this.redraw();
                 },
-                redraw: function () {
+                    redraw: function() {
                     const ctx = this._canvas.getContext('2d');
-                    const width = this._canvas.width;
-                    const height = this._canvas.height;
-
+                        const { width, height } = this._canvas;
                     ctx.clearRect(0, 0, width, height);
 
-                    // Update Water Mask Canvas
                     waterMask.updateCanvas(this._map);
-                    const waterCtx = waterMask.ctx;
-                    // Get water data for collision check
-                    // Optimization: We can't call getImageData for every pixel.
-                    // We should get the whole buffer once.
-                    const waterData = waterCtx.getImageData(0, 0, width, height).data;
-
-                    // Helper to check if a point is water
-                    const isWater = (x, y) => {
-                        if (x < 0 || x >= width || y < 0 || y >= height) return false;
-                        const idx = 4 * (Math.floor(y) * width + Math.floor(x));
-                        // We drew black (0,0,0,255). So alpha > 0 means water.
-                        return waterData[idx + 3] > 100;
-                    };
-
-                    // Helper to check path safety (Bresenham-ish)
-                    const isPathSafe = (x1, y1, x2, y2) => {
-                        // Simple sampling
-                        const dx = x2 - x1;
-                        const dy = y2 - y1;
-                        const dist = Math.sqrt(dx * dx + dy * dy);
-                        const steps = Math.max(Math.floor(dist / 5), 1); // Check every 5 pixels
-
-                        for (let i = 0; i <= steps; i++) {
-                            const t = i / steps;
-                            const cx = x1 + dx * t;
-                            const cy = y1 + dy * t;
-                            if (isWater(cx, cy)) return false;
-                        }
-                        return true;
-                    };
-
-                    // Loop through pixels (low res for speed)
+                        const waterData = waterMask.ctx.getImageData(0, 0, width, height).data;
+                        const isWater = (x, y) => waterData && x >= 0 && x < width && y >= 0 && y < height && waterData[4 * (Math.floor(y) * width + Math.floor(x)) + 3] > 100;
+                        
                     const bounds = this._map.getBounds();
-                    const north = bounds.getNorth();
-                    const west = bounds.getWest();
-                    const latRange = bounds.getSouth() - north; // negative
-                    const lngRange = bounds.getEast() - west;
-
+                        const north = bounds.getNorth(), west = bounds.getWest();
+                        const latRange = bounds.getSouth() - north, lngRange = bounds.getEast() - west;
                     const imgData = ctx.createImageData(width, height);
                     const data = imgData.data;
 
-                    // Optimization: Pre-filter stations that are on screen (or close to it)
-                    // to avoid iterating all 5000 stations for every pixel.
                     const activeStations = [];
-                    if (networkTimes.size > 0) {
                         for (const [id, time] of networkTimes) {
                             const node = transitGraph.nodes.get(id);
-                            // Check if node is roughly within bounds (plus buffer)
-                            if (node.lat < north + 0.1 && node.lat > bounds.getSouth() - 0.1 &&
-                                node.lon > west - 0.1 && node.lon < bounds.getEast() + 0.1) {
+                            if (node && node.lat < north + 0.1 && node.lat > bounds.getSouth() - 0.1 && node.lon > west - 0.1 && node.lon < bounds.getEast() + 0.1) {
                                 activeStations.push({ lat: node.lat, lon: node.lon, time });
-                            }
                         }
                     }
 
                     for (let y = 0; y < height; y += pixelSize) {
-                        // Sample center of block for better accuracy
                         const lat = north + ((y + pixelSize / 2) / height) * latRange;
                         for (let x = 0; x < width; x += pixelSize) {
                             const lng = west + ((x + pixelSize / 2) / width) * lngRange;
 
-                            // 1. Walk Direct Time
-                            const originPt = this._map.latLngToContainerPoint(origin);
-                            const targetPt = { x: x + pixelSize / 2, y: y + pixelSize / 2 }; // Center pixel
-
-                            let timeWalkDirect = Infinity;
-                            if (isPathSafe(originPt.x, originPt.y, targetPt.x, targetPt.y)) {
                                 const distDirect = distHaversine(origin[0], origin[1], lat, lng);
-                                timeWalkDirect = distDirect / WALK_SPEED_MPS;
-                            }
-
-                            // 2. Transit Time
-                            let timeTransit = Infinity;
-
-                            // Find best exit station
-                            // We only check stations that are reachable (in activeStations)
-                            for (let i = 0; i < activeStations.length; i++) {
-                                const s = activeStations[i];
-                                // Simple Manhattan distance check first for speed?
+                                let minTime = distDirect / WALK_SPEED_MPS;
+                                
+                                for (const s of activeStations) {
                                 if (Math.abs(s.lat - lat) + Math.abs(s.lon - lng) < 0.05) {
-                                    const distExit = distHaversine(lat, lng, s.lat, s.lon);
-                                    const total = s.time + (distExit / WALK_SPEED_MPS);
-
-                                    if (total < timeTransit) {
-                                        // Check walk safety from station to pixel
-                                        const stationPt = this._map.latLngToContainerPoint([s.lat, s.lon]);
-                                        if (isPathSafe(stationPt.x, stationPt.y, targetPt.x, targetPt.y)) {
-                                            timeTransit = total;
-                                        }
+                                        const total = s.time + distHaversine(lat, lng, s.lat, s.lon) / WALK_SPEED_MPS;
+                                        if (total < minTime) minTime = total;
                                     }
                                 }
-                            }
-
-                            // Min Time
-                            const totalTimeSec = Math.min(timeWalkDirect, timeTransit);
-                            const totalTimeMin = totalTimeSec / 60;
-
-                            // Color Map
-                            const color = getColor(totalTimeMin);
-
-                            // Fill pixel block
+                                
+                                const color = getColor(minTime / 60);
                             for (let py = 0; py < pixelSize; py++) {
                                 for (let px = 0; px < pixelSize; px++) {
                                     if (y + py < height && x + px < width) {
                                         const idx = 4 * ((y + py) * width + (x + px));
-                                        data[idx] = color[0];     // R
-                                        data[idx + 1] = color[1]; // G
-                                        data[idx + 2] = color[2]; // B
-                                        data[idx + 3] = color[3]; // A
+                                            data[idx] = color[0]; data[idx + 1] = color[1]; data[idx + 2] = color[2]; data[idx + 3] = color[3];
+                                        }
                                     }
                                 }
                             }
                         }
+                        ctx.putImageData(imgData, 0, 0);
                     }
-
-                    ctx.putImageData(imgData, 0, 0);
-                }
-            });
-
+                });
             canvasLayer = new L.CanvasLayer();
             map.addLayer(canvasLayer);
         }
 
-        // --- 6. UTILITIES ---
-        function getColor(minutes) {
-            // Discrete 5-minute buckets (<30m only)
-            if (minutes >= 30) {
-                return [0, 0, 0, 0]; // Transparent
+            function initDataFetching() {
+                const btn = document.getElementById('fetch-stations-btn');
+                const citySelect = document.getElementById('city-select');
+                const busToggle = document.getElementById('bus-toggle');
+                const loading = document.getElementById('loading-overlay');
+                const countLabel = document.getElementById('station-count');
+                
+                citySelect.addEventListener('change', e => {
+                    const city = CITIES[e.target.value];
+                    if (city && city.center) {
+                        origin = city.center;
+                        map.setView(origin, city.zoom);
+                        updateOrigin(origin[0], origin[1], "City Center");
+                        btn.click();
+                    }
+                });
+                
+                btn.addEventListener('click', async () => {
+                    const cityKey = citySelect.value;
+                    const city = CITIES[cityKey];
+                    try {
+                        loading.classList.remove('hidden');
+                        transitGraph.clear();
+                        
+                        for (const file of city.files || []) {
+                            try { await transitFetcher.loadStaticGraph(file, false); } catch (e) { console.warn(e); }
+                        }
+                        if (busToggle.checked) {
+                            for (const file of city.busFiles || []) {
+                                try { await transitFetcher.loadStaticGraph(file, false); } catch (e) { console.warn(e); }
+                            }
+                        }
+                        if (city.water) await waterMask.loadWaterData(city.water);
+                        
+                        transitGraph.generateTransferEdges(200);
+                        countLabel.innerText = `Loaded ${transitGraph.stations.length} stations`;
+                        countLabel.classList.remove('hidden');
+                        updateOrigin(origin[0], origin[1]);
+                    } catch (err) {
+                        alert('Failed to load: ' + err.message);
+                    } finally {
+                        loading.classList.add('hidden');
+                    }
+                });
             }
-
-            const alpha = Math.floor(opacity * 255);
-
-            if (minutes < 5) {
-                return [59, 130, 246, alpha]; // 0-5: Blue (Tailwind blue-500)
-            }
-            else if (minutes < 10) {
-                return [6, 182, 212, alpha];  // 5-10: Cyan (cyan-500)
-            }
-            else if (minutes < 15) {
-                return [16, 185, 129, alpha]; // 10-15: Emerald (emerald-500)
-            }
-            else if (minutes < 20) {
-                return [132, 204, 22, alpha]; // 15-20: Lime (lime-500)
-            }
-            else if (minutes < 25) {
-                return [250, 204, 21, alpha]; // 20-25: Yellow (yellow-400)
-            }
-            else {
-                return [249, 115, 22, alpha]; // 25-30: Orange (orange-500)
-            }
-        }
-
-        async function updateOriginLabel(latlng) {
-            try {
-                const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latlng.lat}&lon=${latlng.lon}&zoom=18&addressdetails=1`);
-                const data = await resp.json();
-                const road = data.address.road || "New Location";
-                const suburb = data.address.suburb || data.address.neighbourhood || data.address.city_district || data.address.city || "Unknown Location";
-                document.getElementById('origin-label').innerText = `${road} (${suburb})`;
-
-                // Update City Title
-                const city = data.address.city || data.address.town || data.address.village || data.address.county || "NYC";
-                document.getElementById('city-title').innerText = city;
-            } catch (e) {
-                document.getElementById('origin-label').innerText = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
-            }
-        }
-
-        // UI Listeners
-        document.getElementById('opacity-slider').addEventListener('input', (e) => {
-            opacity = parseFloat(e.target.value);
-            if (canvasLayer) canvasLayer.redraw();
+            
+            document.getElementById('opacity-slider').addEventListener('input', e => { opacity = parseFloat(e.target.value); if (canvasLayer) canvasLayer.redraw(); });
+            document.getElementById('res-select').addEventListener('change', e => { pixelSize = parseInt(e.target.value); if (canvasLayer) canvasLayer.redraw(); });
+            
+            initMap();
         });
+    </script>
 
-        document.getElementById('res-select').addEventListener('change', (e) => {
-            pixelSize = parseInt(e.target.value);
-            if (canvasLayer) canvasLayer.redraw();
+    <!-- Share button functionality -->
+    <script>
+        document.getElementById('share-btn').addEventListener('click', function() {
+            const url = window.location.href;
+            navigator.clipboard.writeText(url).then(() => {
+                const btn = this;
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Copied!';
+                btn.classList.add('bg-green-100', 'text-green-700');
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('bg-green-100', 'text-green-700');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                prompt('Copy this link:', url);
+            });
         });
-
-        // Start
-        initMap();
-
     </script>
 </body>
 

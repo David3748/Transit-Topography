@@ -6,11 +6,20 @@ import io
 import pandas as pd
 import math
 import shutil
-
 import traceback
 
 CONFIG_FILE = 'cities_config.json'
 OUTPUT_DIR = 'transit_data'
+
+# Try to import shapely for polygon simplification
+try:
+    from shapely.geometry import Polygon, MultiPolygon
+    from shapely.ops import unary_union
+    SHAPELY_AVAILABLE = True
+except ImportError:
+    SHAPELY_AVAILABLE = False
+    print("Warning: shapely not installed. Water polygons will not be simplified.")
+    print("Install with: pip install shapely")
 
 def load_config():
     with open(CONFIG_FILE, 'r') as f:
@@ -28,6 +37,30 @@ def download_and_extract_gtfs(url, extract_path):
     except Exception as e:
         print(f"Error downloading GTFS: {e}")
         return False
+
+def simplify_polygon(coords, tolerance=0.0001):
+    """Simplify a polygon using Douglas-Peucker algorithm"""
+    if not SHAPELY_AVAILABLE or len(coords) < 4:
+        return coords
+    
+    try:
+        poly = Polygon([(c[1], c[0]) for c in coords])  # lon, lat order for shapely
+        if not poly.is_valid:
+            poly = poly.buffer(0)  # Fix invalid polygons
+        simplified = poly.simplify(tolerance, preserve_topology=True)
+        
+        if simplified.is_empty:
+            return coords
+            
+        if isinstance(simplified, MultiPolygon):
+            # Take the largest polygon
+            simplified = max(simplified.geoms, key=lambda p: p.area)
+        
+        # Convert back to lat, lon order
+        return [[c[1], c[0]] for c in simplified.exterior.coords]
+    except Exception as e:
+        print(f"  Warning: Failed to simplify polygon: {e}")
+        return coords
 
 def process_city(city_key, city_data):
     print(f"Processing {city_data['name']} ({city_key})...")
@@ -60,9 +93,6 @@ def process_city(city_key, city_data):
         stop_times_df = pd.read_csv(os.path.join(temp_dir, 'stop_times.txt'), dtype=str)
         trips_df = pd.read_csv(os.path.join(temp_dir, 'trips.txt'), dtype=str)
 
-        # 3. Filter for Rail/Subway if possible (Optional, but good for performance)
-        # Route types: 0=Tram, 1=Subway, 2=Rail. 
-        # We might need routes.txt to filter properly.
         # 3. Load Routes and Filter
         if os.path.exists(os.path.join(temp_dir, 'routes.txt')):
             routes_df = pd.read_csv(os.path.join(temp_dir, 'routes.txt'), dtype=str)
@@ -183,18 +213,7 @@ def process_city(city_key, city_data):
 def fetch_water_polygons(city_key, city_data):
     print(f"Fetching water polygons for {city_key}...")
     
-    # Define bounds (approximate, or use a large box around the city center)
-    # We can use the city center from config or hardcode a box for now.
-    # Ideally, we should use the bounds of the transit network we just built, 
-    # but we don't have that easily accessible here without re-reading.
-    # Let's use a fixed large box around the center for simplicity.
-    
-    # Config doesn't have center in python script yet, it's in JS.
-    # Let's add centers to cities_config.json or just hardcode for now.
-    # Actually, let's look at cities_config.json
-    
-    # For now, let's use a generous box.
-    # NYC: 40.75, -73.98
+    # Define centers for water data fetching
     centers = {
         'nyc': (40.75, -73.98),
         'sf': (37.77, -122.42),
@@ -202,12 +221,14 @@ def fetch_water_polygons(city_key, city_data):
         'chicago': (41.88, -87.63)
     }
     
-    if city_key not in centers:
+    # Skip cities without defined centers
+    base_key = city_key.split('_')[0]  # Handle keys like 'nyc_bus_manhattan'
+    if base_key not in centers:
         print(f"Skipping water fetch for {city_key} (no center defined)")
         return
 
-    lat, lon = centers[city_key]
-    delta = 0.2 # +/- degrees (~20km)
+    lat, lon = centers[base_key]
+    delta = 0.2  # +/- degrees (~20km)
     s, w, n, e = lat - delta, lon - delta, lat + delta, lon + delta
     
     query = f"""
@@ -227,12 +248,54 @@ def fetch_water_polygons(city_key, city_data):
         r.raise_for_status()
         data = r.json()
         
-        # Save as GeoJSON-like structure or just raw Overpass JSON
-        # Raw Overpass JSON is easier to parse if we keep logic in JS
-        # But we want to simplify? 
-        # Let's just save the raw JSON for now, the JS can handle it.
+        original_count = len(data.get('elements', []))
+        original_size = len(json.dumps(data))
         
-        output_file = os.path.join(OUTPUT_DIR, f"water_{city_key}.json")
+        # Simplify polygons if shapely is available
+        if SHAPELY_AVAILABLE:
+            print(f"  Simplifying {original_count} water polygons...")
+            simplified_elements = []
+            
+            for el in data.get('elements', []):
+                if el['type'] == 'way' and 'geometry' in el:
+                    # Simplify way geometry
+                    coords = [[p['lat'], p['lon']] for p in el['geometry']]
+                    simplified_coords = simplify_polygon(coords)
+                    
+                    # Only keep if we have enough points
+                    if len(simplified_coords) >= 4:
+                        el['geometry'] = [{'lat': c[0], 'lon': c[1]} for c in simplified_coords]
+                        simplified_elements.append(el)
+                        
+                elif el['type'] == 'relation' and 'members' in el:
+                    # Simplify relation members
+                    simplified_members = []
+                    for m in el['members']:
+                        if m.get('role') == 'outer' and 'geometry' in m:
+                            coords = [[p['lat'], p['lon']] for p in m['geometry']]
+                            simplified_coords = simplify_polygon(coords)
+                            
+                            if len(simplified_coords) >= 4:
+                                m['geometry'] = [{'lat': c[0], 'lon': c[1]} for c in simplified_coords]
+                                simplified_members.append(m)
+                        else:
+                            # Keep non-outer members as-is (or skip inner?)
+                            pass
+                    
+                    if simplified_members:
+                        el['members'] = simplified_members
+                        simplified_elements.append(el)
+                else:
+                    simplified_elements.append(el)
+            
+            data['elements'] = simplified_elements
+            
+            new_size = len(json.dumps(data))
+            reduction = (1 - new_size / original_size) * 100
+            print(f"  Simplified: {original_size:,} -> {new_size:,} bytes ({reduction:.1f}% reduction)")
+        
+        # Save the data
+        output_file = os.path.join(OUTPUT_DIR, f"water_{base_key}.json")
         with open(output_file, 'w') as f:
             json.dump(data, f)
             

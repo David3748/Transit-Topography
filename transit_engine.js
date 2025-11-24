@@ -12,7 +12,7 @@ class TransitGraph {
 
     addNode(id, lat, lon) {
         if (!this.nodes.has(id)) {
-            this.nodes.set(id, { lat, lon, neighbors: new Map() });
+            this.nodes.set(id, { lat, lon, neighbors: new Map(), id });
             this.stations.push({ id, lat, lon });
         }
     }
@@ -251,9 +251,39 @@ class TransitFetcher {
 
     async loadStaticGraph(url, clear = true) {
         try {
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error(`Failed to load static graph: ${resp.statusText}`);
-            const data = await resp.json();
+            // Check localStorage cache first
+            const cacheKey = `transit_cache_${url}`;
+            const cached = localStorage.getItem(cacheKey);
+            let data;
+            
+            if (cached) {
+                try {
+                    const cacheData = JSON.parse(cached);
+                    // Cache valid for 24 hours
+                    if (Date.now() - cacheData.timestamp < 24 * 60 * 60 * 1000) {
+                        data = cacheData.data;
+                        console.log(`Loaded ${url} from cache`);
+                    }
+                } catch (e) {
+                    console.warn('Cache parse error, fetching fresh data');
+                }
+            }
+            
+            if (!data) {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error(`Failed to load static graph: ${resp.statusText}`);
+                data = await resp.json();
+                
+                // Cache the data
+                try {
+                    localStorage.setItem(cacheKey, JSON.stringify({
+                        timestamp: Date.now(),
+                        data: data
+                    }));
+                } catch (e) {
+                    console.warn('Failed to cache data (storage full?)');
+                }
+            }
 
             // Clear existing graph if requested
             if (clear) {
@@ -359,9 +389,39 @@ class WaterMask {
 
     async loadWaterData(url) {
         try {
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error(`Failed to load water data: ${resp.statusText}`);
-            const data = await resp.json();
+            // Check localStorage cache first
+            const cacheKey = `water_cache_${url}`;
+            const cached = localStorage.getItem(cacheKey);
+            let data;
+            
+            if (cached) {
+                try {
+                    const cacheData = JSON.parse(cached);
+                    // Cache valid for 7 days
+                    if (Date.now() - cacheData.timestamp < 7 * 24 * 60 * 60 * 1000) {
+                        data = cacheData.data;
+                        console.log(`Loaded water data from cache`);
+                    }
+                } catch (e) {
+                    console.warn('Water cache parse error');
+                }
+            }
+            
+            if (!data) {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error(`Failed to load water data: ${resp.statusText}`);
+                data = await resp.json();
+                
+                // Cache the data (if it fits)
+                try {
+                    localStorage.setItem(cacheKey, JSON.stringify({
+                        timestamp: Date.now(),
+                        data: data
+                    }));
+                } catch (e) {
+                    console.warn('Failed to cache water data (storage full?)');
+                }
+            }
 
             this.polygons = [];
 
@@ -416,4 +476,12 @@ class WaterMask {
             this.ctx.fill();
         });
     }
+}
+
+// Make classes available globally for the app
+if (typeof window !== 'undefined') {
+    window.TransitGraph = TransitGraph;
+    window.TransitFetcher = TransitFetcher;
+    window.WaterMask = WaterMask;
+    window.BinaryHeap = BinaryHeap;
 }
