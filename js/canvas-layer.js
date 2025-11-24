@@ -28,6 +28,7 @@ export class IsochoneCanvasLayer {
         this.networkTimes = new Map();
         this.transitGraph = null;
         this.waterMask = null;
+        this.buildingMask = null;
         
         // Tile cache: Map<"zoom-tileX-tileY", ImageData>
         this.tileCache = new Map();
@@ -35,9 +36,20 @@ export class IsochoneCanvasLayer {
         this.cacheEnabled = options.cacheEnabled !== false;
         this.maxCacheSize = options.maxCacheSize || 100; // Max tiles to cache
         
+        // Debounce settings
+        this.debounceDelay = options.debounceDelay || 150;
+        this._debounceTimer = null;
+        this._immediateRender = false;
+        
+        // Progressive rendering
+        this.progressiveRender = options.progressiveRender !== false;
+        this._isPreviewPass = false;
+        this._previewPixelSize = 16; // Fast preview resolution
+        
         // Callbacks
         this.onProgress = options.onProgress || (() => {});
         this.onComplete = options.onComplete || (() => {});
+        this.onRefining = options.onRefining || (() => {});
         
         // Initialize worker
         this._initWorker();
@@ -58,14 +70,21 @@ export class IsochoneCanvasLayer {
     }
 
     _handleWorkerMessage(e) {
-        const { type, progress, data, width, height, message } = e.data;
+        const { type, progress, data, width, height, message, isPreview } = e.data;
         
         if (type === 'progress') {
-            this.onProgress(progress);
+            // Only report progress for full quality render
+            if (!isPreview) {
+                this.onProgress(progress);
+            }
         } else if (type === 'complete') {
             this.isRendering = false;
             this._applyWorkerResult(data, width, height);
-            this.onComplete();
+            
+            // Only call onComplete for full quality render
+            if (!isPreview) {
+                this.onComplete();
+            }
             
             // Handle pending render request
             if (this.pendingRender) {
@@ -247,8 +266,14 @@ export class IsochoneCanvasLayer {
         return tiles;
     }
 
-    redraw() {
+    redraw(immediate = false) {
         if (!this.canvas || !this.map) return;
+        
+        // Clear any pending debounce
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+            this._debounceTimer = null;
+        }
         
         // If already rendering, queue this request
         if (this.isRendering) {
@@ -256,6 +281,32 @@ export class IsochoneCanvasLayer {
             return;
         }
         
+        // Immediate render (for origin changes, initial load)
+        if (immediate || this._immediateRender) {
+            this._immediateRender = false;
+            this._executeRender();
+            return;
+        }
+        
+        // Debounced render with progressive preview
+        if (this.progressiveRender && this.networkTimes.size > 0) {
+            // Render fast preview immediately
+            this._isPreviewPass = true;
+            this._executeRender();
+        }
+        
+        // Schedule full quality render
+        this._debounceTimer = setTimeout(() => {
+            this._debounceTimer = null;
+            if (!this.isRendering) {
+                this._isPreviewPass = false;
+                this.onRefining();
+                this._executeRender();
+            }
+        }, this.debounceDelay);
+    }
+    
+    _executeRender() {
         // Try worker first, fall back to main thread
         if (this.worker) {
             this._renderWithWorker();
@@ -263,14 +314,27 @@ export class IsochoneCanvasLayer {
             this._renderMainThread();
         }
     }
+    
+    // Force immediate redraw (bypasses debounce)
+    forceRedraw() {
+        this._immediateRender = true;
+        this.redraw(true);
+    }
 
     _renderWithWorker() {
         this.isRendering = true;
-        this.onProgress(0);
+        
+        // Don't show progress for preview pass
+        if (!this._isPreviewPass) {
+            this.onProgress(0);
+        }
         
         const bounds = this.map.getBounds();
         const width = this.canvas.width;
         const height = this.canvas.height;
+        
+        // Use larger pixel size for preview pass
+        const effectivePixelSize = this._isPreviewPass ? this._previewPixelSize : this.pixelSize;
         
         // Prepare active stations data
         const activeStations = [];
@@ -285,21 +349,35 @@ export class IsochoneCanvasLayer {
             }
         }
         
-        // Prepare water data
-        let waterData = null;
-        if (this.waterMask && this.waterMask.isLoaded) {
-            this.waterMask.updateCanvas(this.map);
-            const waterCanvas = this.waterMask.canvas;
-            if (waterCanvas.width === width && waterCanvas.height === height) {
-                waterData = this.waterMask.ctx.getImageData(0, 0, width, height).data;
+        // Prepare obstacle data (water + buildings) - skip for preview to speed up
+        let obstacleData = null;
+        if (!this._isPreviewPass) {
+            // Create combined obstacle canvas
+            const obstacleCanvas = document.createElement('canvas');
+            obstacleCanvas.width = width;
+            obstacleCanvas.height = height;
+            const obstacleCtx = obstacleCanvas.getContext('2d');
+            
+            // Draw water
+            if (this.waterMask && this.waterMask.isLoaded) {
+                this.waterMask.updateCanvas(this.map);
+                obstacleCtx.drawImage(this.waterMask.canvas, 0, 0);
             }
+            
+            // Draw buildings
+            if (this.buildingMask && this.buildingMask.isLoaded && this.buildingMask.enabled) {
+                this.buildingMask.updateCanvas(this.map);
+                obstacleCtx.drawImage(this.buildingMask.canvas, 0, 0);
+            }
+            
+            obstacleData = obstacleCtx.getImageData(0, 0, width, height).data;
         }
         
         // Send to worker
         const params = {
             width,
             height,
-            pixelSize: this.pixelSize,
+            pixelSize: effectivePixelSize,
             opacity: this.opacity,
             origin: this.origin,
             bounds: {
@@ -309,8 +387,9 @@ export class IsochoneCanvasLayer {
                 west: bounds.getWest()
             },
             activeStations,
-            waterData: waterData ? Array.from(waterData) : null,
-            walkSpeedMps: this.walkSpeedMps
+            obstacleData: obstacleData ? Array.from(obstacleData) : null,
+            walkSpeedMps: this.walkSpeedMps,
+            isPreview: this._isPreviewPass
         };
         
         this.worker.postMessage({ type: 'render', params });
@@ -323,28 +402,40 @@ export class IsochoneCanvasLayer {
 
         ctx.clearRect(0, 0, width, height);
 
-        // Update Water Mask Canvas
-        let waterData = null;
+        // Create combined obstacle data (water + buildings)
+        let obstacleData = null;
+        const obstacleCanvas = document.createElement('canvas');
+        obstacleCanvas.width = width;
+        obstacleCanvas.height = height;
+        const obstacleCtx = obstacleCanvas.getContext('2d');
+        
         if (this.waterMask && this.waterMask.isLoaded) {
             this.waterMask.updateCanvas(this.map);
-            waterData = this.waterMask.ctx.getImageData(0, 0, width, height).data;
+            obstacleCtx.drawImage(this.waterMask.canvas, 0, 0);
         }
+        
+        if (this.buildingMask && this.buildingMask.isLoaded && this.buildingMask.enabled) {
+            this.buildingMask.updateCanvas(this.map);
+            obstacleCtx.drawImage(this.buildingMask.canvas, 0, 0);
+        }
+        
+        obstacleData = obstacleCtx.getImageData(0, 0, width, height).data;
 
-        const isWater = (x, y) => {
-            if (!waterData || x < 0 || x >= width || y < 0 || y >= height) return false;
+        const isObstacle = (x, y) => {
+            if (!obstacleData || x < 0 || x >= width || y < 0 || y >= height) return false;
             const idx = 4 * (Math.floor(y) * width + Math.floor(x));
-            return waterData[idx + 3] > 100;
+            return obstacleData[idx + 3] > 100;
         };
 
         const isPathSafe = (x1, y1, x2, y2) => {
-            if (!waterData) return true;
+            if (!obstacleData) return true;
             const dx = x2 - x1;
             const dy = y2 - y1;
             const dist = Math.sqrt(dx * dx + dy * dy);
             const steps = Math.max(Math.floor(dist / 8), 1);
             for (let i = 0; i <= steps; i++) {
                 const t = i / steps;
-                if (isWater(x1 + dx * t, y1 + dy * t)) return false;
+                if (isObstacle(x1 + dx * t, y1 + dy * t)) return false;
             }
             return true;
         };

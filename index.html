@@ -19,8 +19,34 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
 
     <style>
+        /* CSS Variables for theming */
+        :root {
+            --bg-primary: #f9fafb;
+            --bg-panel: rgba(255, 255, 255, 0.9);
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+            --text-muted: #9ca3af;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --border: rgba(0, 0, 0, 0.05);
+        }
+
+        [data-theme="dark"] {
+            --bg-primary: #0f172a;
+            --bg-panel: rgba(30, 41, 59, 0.95);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #3b82f6;
+            --accent-hover: #60a5fa;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
         body {
             font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
         }
 
         #map {
@@ -30,11 +56,28 @@
         }
 
         .glass-panel {
-            background: rgba(255, 255, 255, 0.9);
+            background: var(--bg-panel);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border);
             box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.15);
+            transition: background 0.3s, border-color 0.3s;
         }
+
+        [data-theme="dark"] .glass-panel {
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Dark mode text overrides */
+        [data-theme="dark"] .text-gray-900 { color: var(--text-primary); }
+        [data-theme="dark"] .text-gray-800 { color: var(--text-primary); }
+        [data-theme="dark"] .text-gray-700 { color: var(--text-secondary); }
+        [data-theme="dark"] .text-gray-500 { color: var(--text-muted); }
+        [data-theme="dark"] .text-gray-400 { color: var(--text-muted); }
+        [data-theme="dark"] .bg-white { background-color: #1e293b; }
+        [data-theme="dark"] .border-gray-200 { border-color: #334155; }
+        [data-theme="dark"] .border-gray-300 { border-color: #475569; }
+        [data-theme="dark"] .hover\:bg-blue-50:hover { background-color: #1e3a5f; }
+        [data-theme="dark"] .hover\:bg-gray-100:hover { background-color: #334155; }
 
         /* Progress bar animation */
         @keyframes progress-pulse {
@@ -44,6 +87,31 @@
 
         .progress-pulse {
             animation: progress-pulse 1.5s ease-in-out infinite;
+        }
+
+        /* Keyboard shortcut styling */
+        .kbd {
+            display: inline-block;
+            padding: 2px 6px;
+            font-family: monospace;
+            font-size: 11px;
+            background: #e5e7eb;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            box-shadow: 0 1px 0 #9ca3af;
+        }
+
+        [data-theme="dark"] .kbd {
+            background: #374151;
+            border-color: #4b5563;
+            box-shadow: 0 1px 0 #1f2937;
+        }
+
+        /* Station markers */
+        .station-marker {
+            border-radius: 50%;
+            border: 1px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
     </style>
 
@@ -152,11 +220,33 @@
                 </div>
 
                 <!-- Bus Toggle -->
-                <div class="mb-3 flex items-center">
+                <div class="mb-2 flex items-center">
                     <input id="bus-toggle" type="checkbox"
                         class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
                     <label for="bus-toggle" class="ml-2 text-xs font-medium text-gray-700">Include Buses
                         (Slower)</label>
+                </div>
+
+                <!-- Station Toggle -->
+                <div class="mb-2 flex items-center">
+                    <input id="stations-toggle" type="checkbox"
+                        class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                    <label for="stations-toggle" class="ml-2 text-xs font-medium text-gray-700">Show Stations</label>
+                </div>
+
+                <!-- Lines Toggle -->
+                <div class="mb-2 flex items-center">
+                    <input id="lines-toggle" type="checkbox"
+                        class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                    <label for="lines-toggle" class="ml-2 text-xs font-medium text-gray-700">Show Transit Lines</label>
+                </div>
+
+                <!-- Realistic Walking Toggle -->
+                <div class="mb-3 flex items-center">
+                    <input id="buildings-toggle" type="checkbox"
+                        class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                    <label for="buildings-toggle" class="ml-2 text-xs font-medium text-gray-700">Realistic Walking</label>
+                    <span class="ml-1 text-[10px] text-gray-400" title="Avoids walking through buildings">(beta)</span>
                 </div>
 
                 <button id="fetch-stations-btn"
@@ -191,15 +281,68 @@
         </div>
     </div>
 
-    <!-- Share Button -->
-    <button id="share-btn" 
-        class="fixed bottom-4 left-4 z-[1000] glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
-        title="Copy shareable link">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-        </svg>
-        Share Location
-    </button>
+    <!-- Bottom Left Buttons -->
+    <div class="fixed bottom-4 left-4 z-[1000] flex gap-2">
+        <!-- Share Button -->
+        <button id="share-btn" 
+            class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+            title="Copy shareable link">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+            </svg>
+            Share
+        </button>
+
+        <!-- Export Button -->
+        <button id="export-btn" 
+            class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+            title="Export as PNG (E)">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export
+        </button>
+
+        <!-- Dark Mode Toggle -->
+        <button id="theme-btn" 
+            class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+            title="Toggle dark mode (D)">
+            <svg id="theme-icon-light" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+            <svg id="theme-icon-dark" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+        </button>
+
+        <!-- Help Button -->
+        <button id="help-btn" 
+            class="glass-panel px-3 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors"
+            title="Keyboard shortcuts (?)">
+            <span class="kbd">?</span>
+        </button>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="help-modal" class="fixed inset-0 bg-black/50 z-[3000] hidden flex items-center justify-center">
+        <div class="glass-panel rounded-2xl p-6 max-w-md mx-4 shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-gray-900">Keyboard Shortcuts</h2>
+                <button id="help-close" class="text-gray-500 hover:text-gray-700 text-xl">&times;</button>
+            </div>
+            <div class="space-y-2 text-sm text-gray-700">
+                <div class="flex justify-between">
+                    <span>Zoom in / out</span>
+                    <span><span class="kbd">+</span> <span class="kbd">-</span></span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Show this help</span>
+                    <span class="kbd">?</span>
+                </div>
+            </div>
+            <p class="mt-4 text-xs text-gray-500">Right-click on the map to query travel time to any point.</p>
+        </div>
+    </div>
 
     <script type="module" src="js/app.js"></script>
 
@@ -439,25 +582,6 @@
         });
     </script>
 
-    <!-- Share button functionality -->
-    <script>
-        document.getElementById('share-btn').addEventListener('click', function() {
-            const url = window.location.href;
-            navigator.clipboard.writeText(url).then(() => {
-                const btn = this;
-                const originalText = btn.innerHTML;
-                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Copied!';
-                btn.classList.add('bg-green-100', 'text-green-700');
-                setTimeout(() => {
-                    btn.innerHTML = originalText;
-                    btn.classList.remove('bg-green-100', 'text-green-700');
-                }, 2000);
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-                prompt('Copy this link:', url);
-            });
-        });
-    </script>
 </body>
 
 </html>

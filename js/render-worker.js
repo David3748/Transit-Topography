@@ -71,7 +71,7 @@ class WorkerSpatialIndex {
 function render(params) {
     const {
         width, height, pixelSize, opacity,
-        origin, bounds, activeStations, waterData,
+        origin, bounds, activeStations, obstacleData,
         walkSpeedMps
     } = params;
 
@@ -89,23 +89,23 @@ function render(params) {
     const originY = ((origin[0] - north) / latRange) * height;
     const originX = ((origin[1] - west) / lngRange) * width;
 
-    // Water check helper using pre-rendered water data
-    const isWater = (x, y) => {
-        if (!waterData || x < 0 || x >= width || y < 0 || y >= height) return false;
+    // Obstacle check helper using pre-rendered obstacle data (water + buildings)
+    const isObstacle = (x, y) => {
+        if (!obstacleData || x < 0 || x >= width || y < 0 || y >= height) return false;
         const idx = 4 * (Math.floor(y) * width + Math.floor(x));
-        return waterData[idx + 3] > 100;
+        return obstacleData[idx + 3] > 100;
     };
 
     const isPathSafe = (x1, y1, x2, y2) => {
-        if (!waterData) return true;
+        if (!obstacleData) return true;
         const dx = x2 - x1;
         const dy = y2 - y1;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const steps = Math.max(Math.floor(dist / 8), 1); // Check every 8 pixels (was 5)
+        const steps = Math.max(Math.floor(dist / 8), 1); // Check every 8 pixels
         
         for (let i = 0; i <= steps; i++) {
             const t = i / steps;
-            if (isWater(x1 + dx * t, y1 + dy * t)) return false;
+            if (isObstacle(x1 + dx * t, y1 + dy * t)) return false;
         }
         return true;
     };
@@ -175,11 +175,13 @@ function render(params) {
             processed++;
         }
 
-        // Report progress every 10%
-        const progress = Math.floor((processed / totalPixels) * 100);
-        if (progress >= lastProgress + 10) {
-            lastProgress = progress;
-            self.postMessage({ type: 'progress', progress });
+        // Report progress every 10% (skip for preview)
+        if (!params.isPreview) {
+            const progress = Math.floor((processed / totalPixels) * 100);
+            if (progress >= lastProgress + 10) {
+                lastProgress = progress;
+                self.postMessage({ type: 'progress', progress, isPreview: false });
+            }
         }
     }
 
@@ -197,7 +199,8 @@ self.onmessage = function(e) {
                 type: 'complete', 
                 data: result,
                 width: params.width,
-                height: params.height
+                height: params.height,
+                isPreview: params.isPreview || false
             }, [result.buffer]); // Transfer buffer for performance
         } catch (err) {
             self.postMessage({ type: 'error', message: err.message });

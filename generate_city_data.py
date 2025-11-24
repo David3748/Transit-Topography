@@ -194,6 +194,10 @@ def process_city(city_key, city_data):
 
         # 6. Fetch Water Polygons
         fetch_water_polygons(city_key, city_data)
+        
+        # 7. Fetch Building Footprints (optional - can be slow)
+        # Uncomment to generate building data:
+        # fetch_buildings(city_key, city_data)
 
     except Exception as e:
         print(f"Error processing {city_key}: {e}")
@@ -209,6 +213,71 @@ def process_city(city_key, city_data):
         # Cleanup
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
+
+def fetch_buildings(city_key, city_data):
+    """Fetch building footprints for more realistic walking simulation"""
+    print(f"Fetching building footprints for {city_key}...")
+    
+    centers = {
+        'nyc': (40.75, -73.98),
+        'sf': (37.77, -122.42),
+        'boston': (42.36, -71.06),
+        'chicago': (41.88, -87.63)
+    }
+    
+    base_key = city_key.split('_')[0]
+    if base_key not in centers:
+        print(f"Skipping building fetch for {city_key}")
+        return
+    
+    lat, lon = centers[base_key]
+    # Smaller area for buildings (they're dense!)
+    delta = 0.08  # ~8km radius
+    s, w, n, e = lat - delta, lon - delta, lat + delta, lon + delta
+    
+    # Query for buildings - only get outlines, not all details
+    query = f"""
+    [out:json][timeout:120];
+    (
+      way["building"]({s},{w},{n},{e});
+    );
+    out geom;
+    """
+    
+    try:
+        print(f"  Querying buildings in {delta*2:.1f}° box (this may take a while)...")
+        r = requests.post("https://overpass-api.de/api/interpreter", data=query)
+        r.raise_for_status()
+        data = r.json()
+        
+        original_count = len(data.get('elements', []))
+        print(f"  Found {original_count} buildings")
+        
+        # Simplify building polygons aggressively
+        if SHAPELY_AVAILABLE:
+            simplified_elements = []
+            for el in data.get('elements', []):
+                if el['type'] == 'way' and 'geometry' in el:
+                    coords = [[p['lat'], p['lon']] for p in el['geometry']]
+                    # More aggressive simplification for buildings
+                    simplified_coords = simplify_polygon(coords, tolerance=0.00005)
+                    if len(simplified_coords) >= 4:
+                        el['geometry'] = [{'lat': c[0], 'lon': c[1]} for c in simplified_coords]
+                        simplified_elements.append(el)
+            
+            data['elements'] = simplified_elements
+            print(f"  Simplified to {len(simplified_elements)} buildings")
+        
+        output_file = os.path.join(OUTPUT_DIR, f"buildings_{base_key}.json")
+        with open(output_file, 'w') as f:
+            json.dump(data, f)
+        
+        file_size = os.path.getsize(output_file) / 1024 / 1024
+        print(f"  Saved to {output_file} ({file_size:.1f} MB)")
+        
+    except Exception as e:
+        print(f"Error fetching buildings for {city_key}: {e}")
+
 
 def fetch_water_polygons(city_key, city_data):
     print(f"Fetching water polygons for {city_key}...")
