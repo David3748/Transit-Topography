@@ -1,5 +1,2 @@
 config.js
 .DS_Store
-
-# Large walking network data files (generated, too big for GitHub)
-transit_data/walking_*.json

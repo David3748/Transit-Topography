@@ -659,28 +659,64 @@ class WalkingNetwork {
             this.walkingTimes.clear();
             this.currentOrigin = null;
 
-            // Load nodes
-            data.nodes.forEach(n => {
-                this.nodes.set(n.id, {
-                    id: n.id,
-                    lat: n.lat,
-                    lon: n.lon,
-                    neighbors: []
-                });
-                
-                // Add to spatial index
-                const key = this._getGridKey(n.lat, n.lon);
-                if (!this.grid.has(key)) this.grid.set(key, []);
-                this.grid.get(key).push(n);
-            });
+            // Check format version
+            const isOptimized = data.v === 2;
 
-            // Load edges
-            data.edges.forEach(e => {
-                const node = this.nodes.get(e.from);
-                if (node) {
-                    node.neighbors.push({ id: e.to, time: e.time });
-                }
-            });
+            if (isOptimized) {
+                // Optimized format: nodes = [[lat, lon], ...], edges = [[fromIdx, toIdx, time], ...]
+                data.nodes.forEach((coords, idx) => {
+                    const id = String(idx);
+                    const lat = coords[0];
+                    const lon = coords[1];
+                    
+                    this.nodes.set(id, {
+                        id: id,
+                        lat: lat,
+                        lon: lon,
+                        neighbors: []
+                    });
+                    
+                    // Add to spatial index
+                    const key = this._getGridKey(lat, lon);
+                    if (!this.grid.has(key)) this.grid.set(key, []);
+                    this.grid.get(key).push({ id, lat, lon });
+                });
+
+                // Load edges (index-based)
+                data.edges.forEach(e => {
+                    const fromId = String(e[0]);
+                    const toId = String(e[1]);
+                    const time = e[2];
+                    
+                    const node = this.nodes.get(fromId);
+                    if (node) {
+                        node.neighbors.push({ id: toId, time: time });
+                    }
+                });
+            } else {
+                // Legacy format: nodes = [{id, lat, lon}, ...], edges = [{from, to, time}, ...]
+                data.nodes.forEach(n => {
+                    this.nodes.set(n.id, {
+                        id: n.id,
+                        lat: n.lat,
+                        lon: n.lon,
+                        neighbors: []
+                    });
+                    
+                    // Add to spatial index
+                    const key = this._getGridKey(n.lat, n.lon);
+                    if (!this.grid.has(key)) this.grid.set(key, []);
+                    this.grid.get(key).push(n);
+                });
+
+                // Load edges
+                data.edges.forEach(e => {
+                    const node = this.nodes.get(e.from);
+                    if (node) {
+                        node.neighbors.push({ id: e.to, time: e.time });
+                    }
+                });
+            }
 
             this.isLoaded = true;
             console.log(`Walking Network: ${this.nodes.size} nodes loaded`);
