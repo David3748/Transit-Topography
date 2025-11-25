@@ -219,10 +219,44 @@ def fetch_buildings(city_key, city_data):
     print(f"Fetching building footprints for {city_key}...")
     
     centers = {
+        # North America
         'nyc': (40.75, -73.98),
         'sf': (37.77, -122.42),
         'boston': (42.36, -71.06),
-        'chicago': (41.88, -87.63)
+        'chicago': (41.88, -87.63),
+        'dc': (38.90, -77.04),
+        'la': (34.05, -118.24),
+        'seattle': (47.61, -122.33),
+        'portland': (45.52, -122.68),
+        'toronto': (43.65, -79.38),
+        'montreal': (45.50, -73.57),
+        'vancouver': (49.28, -123.12),
+        'philly': (39.95, -75.17),
+        'atlanta': (33.75, -84.39),
+        'mexico': (19.43, -99.13),
+        # Europe
+        'copenhagen': (55.68, 12.57),
+        'london': (51.51, -0.13),
+        'paris': (48.86, 2.35),
+        'berlin': (52.52, 13.40),
+        'amsterdam': (52.37, 4.90),
+        'madrid': (40.42, -3.70),
+        'barcelona': (41.39, 2.17),
+        'vienna': (48.21, 16.37),
+        'stockholm': (59.33, 18.07),
+        'munich': (48.14, 11.58),
+        'oslo': (59.91, 10.75),
+        'helsinki': (60.17, 24.94),
+        'prague': (50.08, 14.44),
+        'milan': (45.46, 9.19),
+        'zurich': (47.38, 8.54),
+        # Asia-Pacific
+        'hong': (22.32, 114.17),
+        'singapore': (1.35, 103.82),
+        'sydney': (-33.87, 151.21),
+        'melbourne': (-37.81, 144.96),
+        # South America
+        'sao': (-23.55, -46.63)
     }
     
     base_key = city_key.split('_')[0]
@@ -284,10 +318,44 @@ def fetch_water_polygons(city_key, city_data):
     
     # Define centers for water data fetching
     centers = {
+        # North America
         'nyc': (40.75, -73.98),
         'sf': (37.77, -122.42),
         'boston': (42.36, -71.06),
-        'chicago': (41.88, -87.63)
+        'chicago': (41.88, -87.63),
+        'dc': (38.90, -77.04),
+        'la': (34.05, -118.24),
+        'seattle': (47.61, -122.33),
+        'portland': (45.52, -122.68),
+        'toronto': (43.65, -79.38),
+        'montreal': (45.50, -73.57),
+        'vancouver': (49.28, -123.12),
+        'philly': (39.95, -75.17),
+        'atlanta': (33.75, -84.39),
+        'mexico': (19.43, -99.13),
+        # Europe
+        'copenhagen': (55.68, 12.57),
+        'london': (51.51, -0.13),
+        'paris': (48.86, 2.35),
+        'berlin': (52.52, 13.40),
+        'amsterdam': (52.37, 4.90),
+        'madrid': (40.42, -3.70),
+        'barcelona': (41.39, 2.17),
+        'vienna': (48.21, 16.37),
+        'stockholm': (59.33, 18.07),
+        'munich': (48.14, 11.58),
+        'oslo': (59.91, 10.75),
+        'helsinki': (60.17, 24.94),
+        'prague': (50.08, 14.44),
+        'milan': (45.46, 9.19),
+        'zurich': (47.38, 8.54),
+        # Asia-Pacific
+        'hong': (22.32, 114.17),
+        'singapore': (1.35, 103.82),
+        'sydney': (-33.87, 151.21),
+        'melbourne': (-37.81, 144.96),
+        # South America
+        'sao': (-23.55, -46.63)
     }
     
     # Skip cities without defined centers

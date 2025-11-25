@@ -5,41 +5,200 @@
 import { debounce, normalizeQuery, getUrlParams, updateUrl } from './utils.js';
 import { IsochoneCanvasLayer } from './canvas-layer.js';
 
-// City configurations (loaded from server)
+// Cities with walking network data available
+const WALKING_NETWORK_CITIES = [
+    'nyc', 'sf', 'boston', 'chicago', 'dc', 'la', 
+    'seattle', 'portland', 'philly', 'toronto', 'montreal'
+];
+
+// City configurations with metadata
 const CITIES = {
+    // North America
     'nyc': {
-        center: [40.7527, -73.9772],
-        zoom: 13,
+        name: 'New York City', flag: '🇺🇸', region: 'north_america',
+        center: [40.7527, -73.9772], zoom: 13,
         files: ['transit_data/nyc.json'],
         busFiles: ['transit_data/nyc_bus.json', 'transit_data/nyc_bus_manhattan_bus.json', 'transit_data/nyc_bus_brooklyn_bus.json'],
-        water: 'transit_data/water_nyc.json',
-        buildings: 'transit_data/buildings_nyc.json'
+        water: 'transit_data/water_nyc.json', buildings: 'transit_data/buildings_nyc.json'
     },
     'sf': {
-        center: [37.7749, -122.4194],
-        zoom: 12,
+        name: 'San Francisco', flag: '🇺🇸', region: 'north_america',
+        center: [37.7749, -122.4194], zoom: 12,
         files: ['transit_data/sf.json', 'transit_data/sf_muni.json'],
         busFiles: ['transit_data/sf_bus.json', 'transit_data/sf_muni_bus.json'],
-        water: 'transit_data/water_sf.json',
-        buildings: 'transit_data/buildings_sf.json'
+        water: 'transit_data/water_sf.json', buildings: 'transit_data/buildings_sf.json'
     },
     'boston': {
-        center: [42.3601, -71.0589],
-        zoom: 13,
-        files: ['transit_data/boston.json'],
-        busFiles: ['transit_data/boston_bus.json'],
-        water: 'transit_data/water_boston.json',
-        buildings: 'transit_data/buildings_boston.json'
+        name: 'Boston', flag: '🇺🇸', region: 'north_america',
+        center: [42.3601, -71.0589], zoom: 13,
+        files: ['transit_data/boston.json'], busFiles: ['transit_data/boston_bus.json'],
+        water: 'transit_data/water_boston.json', buildings: 'transit_data/buildings_boston.json'
     },
     'chicago': {
-        center: [41.8781, -87.6298],
-        zoom: 12,
-        files: ['transit_data/chicago.json'],
-        busFiles: ['transit_data/chicago_bus.json'],
-        water: 'transit_data/water_chicago.json',
-        buildings: 'transit_data/buildings_chicago.json'
+        name: 'Chicago', flag: '🇺🇸', region: 'north_america',
+        center: [41.8781, -87.6298], zoom: 12,
+        files: ['transit_data/chicago.json'], busFiles: ['transit_data/chicago_bus.json'],
+        water: 'transit_data/water_chicago.json', buildings: 'transit_data/buildings_chicago.json'
     },
-    'other': { center: null, zoom: null, files: [], busFiles: [], water: null, buildings: null }
+    'dc': {
+        name: 'Washington DC', flag: '🇺🇸', region: 'north_america',
+        center: [38.9072, -77.0369], zoom: 12,
+        files: ['transit_data/dc.json'], busFiles: ['transit_data/dc_bus.json'],
+        water: 'transit_data/water_dc.json', buildings: 'transit_data/buildings_dc.json'
+    },
+    'la': {
+        name: 'Los Angeles', flag: '🇺🇸', region: 'north_america',
+        center: [34.0522, -118.2437], zoom: 11,
+        files: ['transit_data/la.json'], busFiles: ['transit_data/la_bus.json'],
+        water: 'transit_data/water_la.json', buildings: 'transit_data/buildings_la.json'
+    },
+    'seattle': {
+        name: 'Seattle', flag: '🇺🇸', region: 'north_america',
+        center: [47.6062, -122.3321], zoom: 11,
+        files: ['transit_data/seattle.json'], busFiles: ['transit_data/seattle_bus.json'],
+        water: 'transit_data/water_seattle.json', buildings: 'transit_data/buildings_seattle.json'
+    },
+    'portland': {
+        name: 'Portland', flag: '🇺🇸', region: 'north_america',
+        center: [45.5152, -122.6784], zoom: 12,
+        files: ['transit_data/portland.json'], busFiles: ['transit_data/portland_bus.json'],
+        water: 'transit_data/water_portland.json', buildings: 'transit_data/buildings_portland.json'
+    },
+    'toronto': {
+        name: 'Toronto', flag: '🇨🇦', region: 'north_america',
+        center: [43.6532, -79.3832], zoom: 12,
+        files: ['transit_data/toronto.json'], busFiles: ['transit_data/toronto_bus.json'],
+        water: 'transit_data/water_toronto.json', buildings: 'transit_data/buildings_toronto.json'
+    },
+    'montreal': {
+        name: 'Montreal', flag: '🇨🇦', region: 'north_america',
+        center: [45.5017, -73.5673], zoom: 12,
+        files: ['transit_data/montreal.json'], busFiles: ['transit_data/montreal_bus.json'],
+        water: 'transit_data/water_montreal.json', buildings: 'transit_data/buildings_montreal.json'
+    },
+    'vancouver': {
+        name: 'Vancouver', flag: '🇨🇦', region: 'north_america',
+        center: [49.2827, -123.1207], zoom: 12,
+        files: ['transit_data/vancouver.json'], busFiles: ['transit_data/vancouver_bus.json'],
+        water: 'transit_data/water_vancouver.json', buildings: 'transit_data/buildings_vancouver.json'
+    },
+    'philly': {
+        name: 'Philadelphia', flag: '🇺🇸', region: 'north_america',
+        center: [39.9526, -75.1652], zoom: 12,
+        files: ['transit_data/philly.json'], busFiles: ['transit_data/philly_bus.json'],
+        water: 'transit_data/water_philly.json', buildings: 'transit_data/buildings_philly.json'
+    },
+    'atlanta': {
+        name: 'Atlanta', flag: '🇺🇸', region: 'north_america',
+        center: [33.7490, -84.3880], zoom: 11,
+        files: ['transit_data/atlanta.json'], busFiles: ['transit_data/atlanta_bus.json'],
+        water: 'transit_data/water_atlanta.json', buildings: 'transit_data/buildings_atlanta.json'
+    },
+    'mexico_city': {
+        name: 'Mexico City', flag: '🇲🇽', region: 'north_america',
+        center: [19.4326, -99.1332], zoom: 11,
+        files: ['transit_data/mexico_city.json'], busFiles: ['transit_data/mexico_city_bus.json'],
+        water: 'transit_data/water_mexico_city.json', buildings: 'transit_data/buildings_mexico_city.json'
+    },
+    // Europe
+    'london': {
+        name: 'London', flag: '🇬🇧', region: 'europe',
+        center: [51.5074, -0.1278], zoom: 11,
+        files: ['transit_data/london.json'], busFiles: [],
+        water: 'transit_data/water_london.json', buildings: 'transit_data/buildings_london.json'
+    },
+    'paris': {
+        name: 'Paris', flag: '🇫🇷', region: 'europe',
+        center: [48.8566, 2.3522], zoom: 12,
+        files: ['transit_data/paris.json'], busFiles: ['transit_data/paris_bus.json'],
+        water: 'transit_data/water_paris.json', buildings: 'transit_data/buildings_paris.json'
+    },
+    'berlin': {
+        name: 'Berlin', flag: '🇩🇪', region: 'europe',
+        center: [52.5200, 13.4050], zoom: 11,
+        files: ['transit_data/berlin.json'], busFiles: ['transit_data/berlin_bus.json'],
+        water: 'transit_data/water_berlin.json', buildings: 'transit_data/buildings_berlin.json'
+    },
+    'amsterdam': {
+        name: 'Amsterdam', flag: '🇳🇱', region: 'europe',
+        center: [52.3676, 4.9041], zoom: 12,
+        files: ['transit_data/amsterdam.json'], busFiles: ['transit_data/amsterdam_bus.json'],
+        water: 'transit_data/water_amsterdam.json', buildings: 'transit_data/buildings_amsterdam.json'
+    },
+    'copenhagen': {
+        name: 'Copenhagen', flag: '🇩🇰', region: 'europe',
+        center: [55.6761, 12.5683], zoom: 12,
+        files: ['transit_data/copenhagen.json'], busFiles: ['transit_data/copenhagen_bus.json'],
+        water: 'transit_data/water_copenhagen.json', buildings: 'transit_data/buildings_copenhagen.json'
+    },
+    'madrid': {
+        name: 'Madrid', flag: '🇪🇸', region: 'europe',
+        center: [40.4168, -3.7038], zoom: 12,
+        files: ['transit_data/madrid.json'], busFiles: ['transit_data/madrid_bus.json'],
+        water: 'transit_data/water_madrid.json', buildings: 'transit_data/buildings_madrid.json'
+    },
+    'barcelona': {
+        name: 'Barcelona', flag: '🇪🇸', region: 'europe',
+        center: [41.3851, 2.1734], zoom: 12,
+        files: ['transit_data/barcelona.json'], busFiles: ['transit_data/barcelona_bus.json'],
+        water: 'transit_data/water_barcelona.json', buildings: 'transit_data/buildings_barcelona.json'
+    },
+    // Vienna, Stockholm, Munich - GTFS not publicly available, requires API keys
+    'oslo': {
+        name: 'Oslo', flag: '🇳🇴', region: 'europe',
+        center: [59.9139, 10.7522], zoom: 12,
+        files: ['transit_data/oslo.json'], busFiles: ['transit_data/oslo_bus.json'],
+        water: 'transit_data/water_oslo.json', buildings: 'transit_data/buildings_oslo.json'
+    },
+    'helsinki': {
+        name: 'Helsinki', flag: '🇫🇮', region: 'europe',
+        center: [60.1699, 24.9384], zoom: 12,
+        files: ['transit_data/helsinki.json'], busFiles: ['transit_data/helsinki_bus.json'],
+        water: 'transit_data/water_helsinki.json', buildings: 'transit_data/buildings_helsinki.json'
+    },
+    'prague': {
+        name: 'Prague', flag: '🇨🇿', region: 'europe',
+        center: [50.0755, 14.4378], zoom: 12,
+        files: ['transit_data/prague.json'], busFiles: ['transit_data/prague_bus.json'],
+        water: 'transit_data/water_prague.json', buildings: 'transit_data/buildings_prague.json'
+    },
+    // Milan, Zurich - GTFS not publicly available
+    // Asia-Pacific
+    'hong_kong': {
+        name: 'Hong Kong', flag: '🇭🇰', region: 'asia_pacific',
+        center: [22.3193, 114.1694], zoom: 12,
+        files: ['transit_data/hong_kong.json'], busFiles: ['transit_data/hong_kong_bus.json'],
+        water: 'transit_data/water_hong_kong.json', buildings: 'transit_data/buildings_hong_kong.json'
+    },
+    // Singapore - requires LTA DataMall API key
+    'sydney': {
+        name: 'Sydney', flag: '🇦🇺', region: 'asia_pacific',
+        center: [-33.8688, 151.2093], zoom: 12,
+        files: ['transit_data/sydney.json'], busFiles: ['transit_data/sydney_bus.json'],
+        water: 'transit_data/water_sydney.json', buildings: 'transit_data/buildings_sydney.json'
+    },
+    'melbourne': {
+        name: 'Melbourne', flag: '🇦🇺', region: 'asia_pacific',
+        center: [-37.8136, 144.9631], zoom: 12,
+        files: ['transit_data/melbourne.json'], busFiles: ['transit_data/melbourne_bus.json'],
+        water: 'transit_data/water_melbourne.json', buildings: 'transit_data/buildings_melbourne.json'
+    },
+    // South America
+    'sao_paulo': {
+        name: 'São Paulo', flag: '🇧🇷', region: 'south_america',
+        center: [-23.5505, -46.6333], zoom: 12,
+        files: ['transit_data/sao_paulo.json'], busFiles: ['transit_data/sao_paulo_bus.json'],
+        water: 'transit_data/water_sao_paulo.json', buildings: 'transit_data/buildings_sao_paulo.json'
+    },
+    'other': { name: 'Other', flag: '🌍', region: 'other', center: null, zoom: null, files: [], busFiles: [], water: null, buildings: null }
+};
+
+// Region display names
+const REGIONS = {
+    'north_america': 'North America',
+    'europe': 'Europe',
+    'asia_pacific': 'Asia-Pacific',
+    'south_america': 'South America'
 };
 
 // Configuration constants
@@ -66,7 +225,8 @@ class TransitTopographyApp {
         
         // UI state
         this.opacity = 0.6;
-        this.pixelSize = 4;
+        this.pixelSize = 2; // Default matches "High" in HTML
+        this.maxTime = 30; // Max time in minutes
         this.isDarkMode = false;
         this.showStations = false;
         this.showLines = false;
@@ -92,6 +252,7 @@ class TransitTopographyApp {
         this.transitFetcher = new TransitFetcher(this.transitGraph);
         this.waterMask = new WaterMask();
         this.buildingMask = new BuildingMask();
+        this.walkingNetwork = new WalkingNetwork();
         
         // Check URL parameters
         const params = getUrlParams();
@@ -129,8 +290,12 @@ class TransitTopographyApp {
         this.initAddressSearch();
         this.initDataFetching();
         
-        // Update city selector
+        // Update city selector and title
         document.getElementById('city-select').value = this.currentCity;
+        const currentCityData = CITIES[this.currentCity];
+        if (currentCityData) {
+            document.getElementById('city-title').textContent = currentCityData.name;
+        }
         
         // Auto-load if city is specified
         if (params.city && CITIES[params.city] && CITIES[params.city].files.length > 0) {
@@ -178,12 +343,14 @@ class TransitTopographyApp {
 
         this.originMarker = L.marker(this.origin, { icon: markerIcon }).addTo(this.map);
 
-        // Map click handler
+        // Ctrl+click to set new origin
         this.map.on('click', (e) => {
-            this.updateOrigin(e.latlng.lat, e.latlng.lng);
+            if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+                this.updateOrigin(e.latlng.lat, e.latlng.lng);
+            }
         });
         
-        // Click-to-query travel time
+        // Right-click to query travel time
         this.map.on('contextmenu', (e) => {
             e.originalEvent.preventDefault();
             const travelTime = this.canvasLayer.getTravelTime(e.latlng.lat, e.latlng.lng);
@@ -194,6 +361,42 @@ class TransitTopographyApp {
                     .openOn(this.map);
             }
         });
+    }
+
+    // Prepare origin data without triggering render (used during initial load)
+    prepareOrigin(lat, lng, labelText = null) {
+        this.origin = [lat, lng];
+        this.originMarker.setLatLng(this.origin);
+        this.map.setView(this.origin, this.map.getZoom(), { animate: false });
+
+        if (labelText) {
+            document.getElementById('origin-label').innerText = labelText;
+        } else {
+            this.updateOriginLabel({ lat, lon: lng });
+        }
+        
+        // Compute walking network times from new origin
+        if (this.walkingNetwork && this.walkingNetwork.isLoaded && this.walkingNetwork.enabled) {
+            this.walkingNetwork.computeFromOrigin(lat, lng);
+            this.canvasLayer.setWalkingNetwork(this.walkingNetwork);
+        }
+
+        // Calculate Network Times
+        if (this.transitGraph.nodes.size > 0) {
+            const entryNodes = [];
+            for (const [id, node] of this.transitGraph.nodes) {
+                const dist = this.transitGraph.distHaversine(lat, lng, node.lat, node.lon);
+                if (dist < 2000) {
+                    const walkTime = dist / WALK_SPEED_MPS;
+                    entryNodes.push({ id, initialWalkTime: walkTime });
+                }
+            }
+
+            this.networkTimes = this.transitGraph.calculateNetworkTimes(entryNodes, TRANSFER_PENALTY_SEC);
+            this.canvasLayer.setNetworkTimes(this.networkTimes);
+        }
+
+        this.canvasLayer.setOrigin(this.origin);
     }
 
     updateOrigin(lat, lng, labelText = null) {
@@ -209,6 +412,12 @@ class TransitTopographyApp {
         
         // Update URL
         updateUrl(this.currentCity, lat, lng);
+
+        // Compute walking network times from new origin
+        if (this.walkingNetwork && this.walkingNetwork.isLoaded && this.walkingNetwork.enabled) {
+            this.walkingNetwork.computeFromOrigin(lat, lng);
+            this.canvasLayer.setWalkingNetwork(this.walkingNetwork);
+        }
 
         // Calculate Network Times
         if (this.transitGraph.nodes.size > 0) {
@@ -256,34 +465,42 @@ class TransitTopographyApp {
         document.getElementById('res-select').addEventListener('change', (e) => {
             this.pixelSize = parseInt(e.target.value);
             this.canvasLayer.setPixelSize(this.pixelSize);
-            this.canvasLayer.redraw();
+            this.canvasLayer.forceRedraw();
+        });
+
+        // Max time select
+        document.getElementById('max-time-select').addEventListener('change', (e) => {
+            this.maxTime = parseInt(e.target.value);
+            this.canvasLayer.setMaxTime(this.maxTime);
+            this.updateLegend();
+            this.canvasLayer.forceRedraw();
         });
 
         // Dark mode toggle
         document.getElementById('theme-btn').addEventListener('click', this.toggleDarkMode);
 
         // Stations toggle
-        const stationsToggle = document.getElementById('stations-toggle');
-        stationsToggle.addEventListener('change', (e) => {
+        document.getElementById('stations-toggle').addEventListener('change', (e) => {
             this.showStations = e.target.checked;
             this.toggleStations();
         });
 
         // Lines toggle
-        const linesToggle = document.getElementById('lines-toggle');
-        linesToggle.addEventListener('change', (e) => {
+        document.getElementById('lines-toggle').addEventListener('change', (e) => {
             this.showLines = e.target.checked;
             this.toggleLines();
         });
 
-        // Buildings/Realistic Walking toggle
-        const buildingsToggle = document.getElementById('buildings-toggle');
-        buildingsToggle.addEventListener('change', (e) => {
-            if (this.buildingMask) {
-                this.buildingMask.enabled = e.target.checked;
+        // Walking Network toggle
+        document.getElementById('walking-network-toggle').addEventListener('change', (e) => {
+            if (this.walkingNetwork) {
+                this.walkingNetwork.enabled = e.target.checked;
                 this.canvasLayer.forceRedraw();
             }
         });
+        
+        // Update walking network UI based on available cities
+        this.updateWalkingNetworkUI();
 
         // Export button
         document.getElementById('export-btn').addEventListener('click', this.exportImage);
@@ -298,6 +515,9 @@ class TransitTopographyApp {
         helpModal.addEventListener('click', (e) => {
             if (e.target === helpModal) helpModal.classList.add('hidden');
         });
+
+        // City selector modal
+        this.initCityModal();
 
         // Keyboard shortcuts
         document.addEventListener('keydown', this.handleKeyboard);
@@ -321,6 +541,120 @@ class TransitTopographyApp {
         });
     }
 
+    initCityModal() {
+        const cityTitleBtn = document.getElementById('city-title-btn');
+        const cityModal = document.getElementById('city-modal');
+        const cityModalClose = document.getElementById('city-modal-close');
+        const citySearch = document.getElementById('city-search');
+
+        // Populate city grids
+        this.populateCityGrid();
+
+        // Open modal when clicking city title
+        cityTitleBtn.addEventListener('click', () => {
+            cityModal.classList.remove('hidden');
+            citySearch.value = '';
+            citySearch.focus();
+            this.filterCities('');
+        });
+
+        // Close modal
+        cityModalClose.addEventListener('click', () => cityModal.classList.add('hidden'));
+        cityModal.addEventListener('click', (e) => {
+            if (e.target === cityModal) cityModal.classList.add('hidden');
+        });
+
+        // Search filter
+        citySearch.addEventListener('input', (e) => {
+            this.filterCities(e.target.value.toLowerCase());
+        });
+
+        // Keyboard navigation
+        citySearch.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                cityModal.classList.add('hidden');
+            }
+        });
+    }
+
+    populateCityGrid() {
+        const regionContainers = {
+            'north_america': document.getElementById('cities-north-america'),
+            'europe': document.getElementById('cities-europe'),
+            'asia_pacific': document.getElementById('cities-asia-pacific'),
+            'south_america': document.getElementById('cities-south-america')
+        };
+
+        // Clear existing
+        Object.values(regionContainers).forEach(c => c && (c.innerHTML = ''));
+
+        // Add cities
+        for (const [key, city] of Object.entries(CITIES)) {
+            if (key === 'other' || !city.region || !regionContainers[city.region]) continue;
+
+            const chip = document.createElement('button');
+            chip.className = 'city-chip';
+            chip.dataset.city = key;
+            chip.dataset.name = city.name.toLowerCase();
+            chip.innerHTML = `${city.flag} ${city.name}`;
+            
+            if (key === this.currentCity) {
+                chip.classList.add('active');
+            }
+
+            chip.addEventListener('click', () => this.selectCity(key));
+            regionContainers[city.region].appendChild(chip);
+        }
+    }
+
+    filterCities(query) {
+        const chips = document.querySelectorAll('.city-chip');
+        const regionSections = document.querySelectorAll('.region-section');
+        
+        chips.forEach(chip => {
+            const name = chip.dataset.name;
+            const matches = !query || name.includes(query);
+            chip.classList.toggle('hidden', !matches);
+        });
+
+        // Hide empty regions
+        regionSections.forEach(section => {
+            const visibleChips = section.querySelectorAll('.city-chip:not(.hidden)');
+            section.style.display = visibleChips.length === 0 ? 'none' : 'block';
+        });
+    }
+
+    selectCity(cityKey) {
+        const city = CITIES[cityKey];
+        if (!city || !city.center) return;
+
+        // Update current city
+        this.currentCity = cityKey;
+        document.getElementById('city-select').value = cityKey;
+
+        // Update title
+        document.getElementById('city-title').textContent = city.name;
+
+        // Update active chip
+        document.querySelectorAll('.city-chip').forEach(chip => {
+            chip.classList.toggle('active', chip.dataset.city === cityKey);
+        });
+
+        // Close modal
+        document.getElementById('city-modal').classList.add('hidden');
+
+        // Update map view
+        this.origin = [...city.center];
+        this.map.setView(this.origin, city.zoom);
+        this.originMarker.setLatLng(this.origin);
+
+        // Update URL
+        updateUrl(cityKey, this.origin[0], this.origin[1]);
+
+        // Load city data
+        this.loadCity();
+    }
+
     handleKeyboard(e) {
         // Ignore if typing in an input
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -338,6 +672,7 @@ class TransitTopographyApp {
                 break;
             case 'Escape':
                 document.getElementById('help-modal').classList.add('hidden');
+                document.getElementById('city-modal').classList.add('hidden');
                 break;
         }
     }
@@ -681,16 +1016,83 @@ class TransitTopographyApp {
                 <div class="text-xs text-gray-500 truncate">${address}</div>
             `;
 
-            li.addEventListener('click', () => {
+            li.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
                 const lat = parseFloat(item.lat);
                 const lon = parseFloat(item.lon);
-                this.updateOrigin(lat, lon, name);
-
+                
+                console.log('Address clicked:', name, 'lat:', lat, 'lon:', lon);
+                
+                if (isNaN(lat) || isNaN(lon)) {
+                    console.error('Invalid coordinates:', item);
+                    return;
+                }
+                
+                // Hide search UI first
                 list.classList.add('hidden');
                 container.classList.add('hidden');
                 label.classList.remove('hidden');
                 input.classList.add('rounded');
                 input.classList.remove('rounded-t');
+                
+                // Auto-detect city from address
+                const displayName = item.display_name || '';
+                const detectedCity = this.detectCity(displayName);
+                
+                if (detectedCity && detectedCity !== this.currentCity) {
+                    this.currentCity = detectedCity;
+                    document.getElementById('city-select').value = detectedCity;
+                    document.getElementById('city-title').textContent = CITIES[detectedCity]?.name || detectedCity;
+                    
+                    // Update active chip in city modal
+                    document.querySelectorAll('.city-chip').forEach(chip => {
+                        chip.classList.toggle('active', chip.dataset.city === detectedCity);
+                    });
+                    
+                    // Set origin BEFORE loading city so loadCity uses correct coordinates
+                    this.origin = [lat, lon];
+                    
+                    // Load the new city's transit data
+                    await this.loadCity();
+                }
+                
+                // Calculate target zoom (at least street level)
+                const targetZoom = Math.max(this.map.getZoom(), 15);
+                
+                // Set the map view FIRST with immediate effect
+                this.map.setView([lat, lon], targetZoom, { animate: true });
+                
+                // Now update origin (this will update marker, labels, network calculations)
+                this.origin = [lat, lon];
+                this.originMarker.setLatLng([lat, lon]);
+                document.getElementById('origin-label').innerText = name;
+                updateUrl(this.currentCity, lat, lon);
+                
+                // Compute transit network from new origin
+                if (this.walkingNetwork && this.walkingNetwork.isLoaded && this.walkingNetwork.enabled) {
+                    this.walkingNetwork.computeFromOrigin(lat, lon);
+                    this.canvasLayer.setWalkingNetwork(this.walkingNetwork);
+                }
+
+                if (this.transitGraph.nodes.size > 0) {
+                    const entryNodes = [];
+                    for (const [id, node] of this.transitGraph.nodes) {
+                        const dist = this.transitGraph.distHaversine(lat, lon, node.lat, node.lon);
+                        if (dist < 2000) {
+                            const walkTime = dist / WALK_SPEED_MPS;
+                            entryNodes.push({ id, initialWalkTime: walkTime });
+                        }
+                    }
+                    this.networkTimes = this.transitGraph.calculateNetworkTimes(entryNodes, TRANSFER_PENALTY_SEC);
+                    this.canvasLayer.setNetworkTimes(this.networkTimes);
+                }
+
+                this.canvasLayer.setOrigin([lat, lon]);
+                this.canvasLayer.redraw();
+                
+                console.log('Map moved to:', lat, lon, 'zoom:', targetZoom);
             });
 
             list.appendChild(li);
@@ -731,6 +1133,9 @@ class TransitTopographyApp {
         try {
             loading.classList.remove('hidden');
             countLabel.classList.add('hidden');
+            
+            // Prevent rendering until all data is loaded
+            this.canvasLayer.setDataReady(false);
 
             let count = 0;
             if (city && city.files && city.files.length > 0) {
@@ -767,6 +1172,10 @@ class TransitTopographyApp {
                 if (city.buildings) {
                     await this.buildingMask.loadBuildingData(city.buildings);
                 }
+                
+                // Load Walking Network
+                const walkingUrl = `transit_data/walking_${cityKey}.json`;
+                await this.walkingNetwork.loadNetwork(walkingUrl);
             } else {
                 const bounds = this.map.getBounds();
                 count = await this.transitFetcher.fetchRoutes(bounds);
@@ -778,12 +1187,19 @@ class TransitTopographyApp {
             countLabel.innerText = `Loaded ${count} stations for ${cityKey.toUpperCase()}`;
             countLabel.classList.remove('hidden');
 
+            // Update walking network UI based on city
+            this.updateWalkingNetworkUI();
+
             // Update station/line layers if visible
             if (this.showStations) this.renderStations();
             if (this.showLines) this.renderLines();
 
-            // Recalculate Times
-            this.updateOrigin(this.origin[0], this.origin[1]);
+            // Compute everything first without rendering
+            this.prepareOrigin(this.origin[0], this.origin[1]);
+            
+            // Now enable rendering and trigger single render
+            this.canvasLayer.setDataReady(true);
+            this.canvasLayer.redraw();
 
         } catch (err) {
             console.error(err);
@@ -825,6 +1241,80 @@ class TransitTopographyApp {
                 progressText.textContent = 'Refining...';
             }
         }
+    }
+
+    updateLegend() {
+        const labels = document.getElementById('legend-labels');
+        if (!labels) return;
+        
+        const steps = 6;
+        const interval = this.maxTime / steps;
+        
+        let html = '<span>0</span>';
+        for (let i = 1; i <= steps; i++) {
+            const time = Math.round(interval * i);
+            html += `<span>${time}${i === steps ? 'm' : ''}</span>`;
+        }
+        labels.innerHTML = html;
+    }
+
+    updateWalkingNetworkUI() {
+        const container = document.getElementById('walking-network-container');
+        const citiesLabel = document.getElementById('walking-network-cities');
+        const toggle = document.getElementById('walking-network-toggle');
+        
+        if (!container) return;
+        
+        const hasWalkingData = WALKING_NETWORK_CITIES.includes(this.currentCity);
+        
+        if (hasWalkingData) {
+            container.classList.remove('hidden');
+            // Show abbreviations of cities with walking data
+            const abbrevs = WALKING_NETWORK_CITIES.map(c => c.toUpperCase()).join(', ');
+            citiesLabel.textContent = `(${abbrevs})`;
+            toggle.checked = true;
+            if (this.walkingNetwork) {
+                this.walkingNetwork.enabled = true;
+            }
+        } else {
+            container.classList.add('hidden');
+            toggle.checked = false;
+            if (this.walkingNetwork) {
+                this.walkingNetwork.enabled = false;
+            }
+        }
+    }
+
+    detectCity(addressString) {
+        if (!addressString || typeof addressString !== 'string') return null;
+        const addr = addressString.toLowerCase();
+        
+        // City detection patterns
+        const cityPatterns = {
+            'nyc': ['new york', 'manhattan', 'brooklyn', 'queens', 'bronx', 'staten island', 'nyc'],
+            'sf': ['san francisco', 'sf', 'bay area'],
+            'boston': ['boston', 'cambridge, ma', 'somerville, ma'],
+            'chicago': ['chicago'],
+            'dc': ['washington, d.c.', 'washington dc', 'district of columbia', 'd.c.'],
+            'la': ['los angeles', 'la, ca', 'santa monica', 'hollywood'],
+            'seattle': ['seattle', 'king county'],
+            'portland': ['portland, or', 'portland, oregon'],
+            'philadelphia': ['philadelphia', 'philly'],
+            'toronto': ['toronto', 'ontario, canada']
+        };
+        
+        for (const [cityKey, patterns] of Object.entries(cityPatterns)) {
+            for (const pattern of patterns) {
+                if (addr.includes(pattern)) {
+                    // Check if this city exists in CITIES config
+                    if (CITIES[cityKey]) {
+                        return cityKey;
+                    }
+                }
+            }
+        }
+        
+        return null;
     }
 }
 

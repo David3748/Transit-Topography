@@ -19,9 +19,10 @@ export class IsochoneCanvasLayer {
         this.pendingRender = false;
         
         // Configuration
-        this.pixelSize = options.pixelSize || 4;
+        this.pixelSize = options.pixelSize || 2;
         this.opacity = options.opacity || 0.6;
         this.walkSpeedMps = options.walkSpeedMps || 1.3;
+        this.maxTime = options.maxTime || 30; // Max time in minutes
         
         // Data references (set externally)
         this.origin = options.origin || [40.7527, -73.9772];
@@ -29,6 +30,7 @@ export class IsochoneCanvasLayer {
         this.transitGraph = null;
         this.waterMask = null;
         this.buildingMask = null;
+        this.dataReady = false; // Don't render until transit data is loaded
         
         // Tile cache: Map<"zoom-tileX-tileY", ImageData>
         this.tileCache = new Map();
@@ -40,11 +42,13 @@ export class IsochoneCanvasLayer {
         this.debounceDelay = options.debounceDelay || 150;
         this._debounceTimer = null;
         this._immediateRender = false;
+        this._lastRenderTime = 0;
+        this._minRenderInterval = 500; // Minimum ms between renders
         
         // Progressive rendering
         this.progressiveRender = options.progressiveRender !== false;
         this._isPreviewPass = false;
-        this._previewPixelSize = 16; // Fast preview resolution
+        this._previewPixelSize = 8; // Fast preview resolution
         
         // Callbacks
         this.onProgress = options.onProgress || (() => {});
@@ -213,6 +217,23 @@ export class IsochoneCanvasLayer {
         // Note: opacity change doesn't invalidate cache, we just re-apply with new opacity
     }
 
+    setMaxTime(maxTime) {
+        this.maxTime = maxTime;
+        this.invalidateCache();
+    }
+
+    setWalkingNetwork(walkingNetwork) {
+        this.walkingNetwork = walkingNetwork;
+        this.invalidateCache();
+    }
+
+    setDataReady(ready) {
+        this.dataReady = ready;
+        if (ready) {
+            this._lastRenderTime = 0; // Allow immediate first render
+        }
+    }
+
     // Tile caching methods
     invalidateCache() {
         this.tileCache.clear();
@@ -267,7 +288,18 @@ export class IsochoneCanvasLayer {
     }
 
     redraw(immediate = false) {
-        if (!this.canvas || !this.map) return;
+        if (!this.canvas || !this.map || !this.dataReady) return;
+        
+        // Prevent duplicate renders within short time window
+        const now = Date.now();
+        if (!immediate && this.isRendering) {
+            this.pendingRender = true;
+            return;
+        }
+        if (!immediate && (now - this._lastRenderTime) < this._minRenderInterval) {
+            return; // Skip - rendered too recently
+        }
+        this._lastRenderTime = now;
         
         // Clear any pending debounce
         if (this._debounceTimer) {
@@ -278,32 +310,21 @@ export class IsochoneCanvasLayer {
         // If already rendering, queue this request
         if (this.isRendering) {
             this.pendingRender = true;
+            this._pendingFullQuality = true;
             return;
         }
         
         // Immediate render (for origin changes, initial load)
         if (immediate || this._immediateRender) {
             this._immediateRender = false;
+            this._isPreviewPass = false;
             this._executeRender();
             return;
         }
         
-        // Debounced render with progressive preview
-        if (this.progressiveRender && this.networkTimes.size > 0) {
-            // Render fast preview immediately
-            this._isPreviewPass = true;
-            this._executeRender();
-        }
-        
-        // Schedule full quality render
-        this._debounceTimer = setTimeout(() => {
-            this._debounceTimer = null;
-            if (!this.isRendering) {
-                this._isPreviewPass = false;
-                this.onRefining();
-                this._executeRender();
-            }
-        }, this.debounceDelay);
+        // Just render at full quality (progressive was causing issues)
+        this._isPreviewPass = false;
+        this._executeRender();
     }
     
     _executeRender() {
@@ -315,8 +336,9 @@ export class IsochoneCanvasLayer {
         }
     }
     
-    // Force immediate redraw (bypasses debounce)
+    // Force immediate redraw (bypasses debounce but still checks dataReady)
     forceRedraw() {
+        if (!this.dataReady) return;
         this._immediateRender = true;
         this.redraw(true);
     }
@@ -373,12 +395,43 @@ export class IsochoneCanvasLayer {
             obstacleData = obstacleCtx.getImageData(0, 0, width, height).data;
         }
         
+        // Prepare walking time grid if walking network is enabled
+        let walkingGrid = null;
+        const hasWalkingNetwork = this.walkingNetwork && this.walkingNetwork.isLoaded && this.walkingNetwork.enabled;
+        
+        if (hasWalkingNetwork && this.walkingNetwork.walkingTimes.size > 0) {
+            const gridSize = 150; // 150x150 grid for better resolution
+            walkingGrid = {
+                data: new Float32Array(gridSize * gridSize),
+                size: gridSize,
+                bounds: {
+                    north: bounds.getNorth(),
+                    south: bounds.getSouth(),
+                    east: bounds.getEast(),
+                    west: bounds.getWest()
+                }
+            };
+            
+            const latStep = (bounds.getNorth() - bounds.getSouth()) / gridSize;
+            const lngStep = (bounds.getEast() - bounds.getWest()) / gridSize;
+            
+            for (let row = 0; row < gridSize; row++) {
+                const lat = bounds.getSouth() + (row + 0.5) * latStep;
+                for (let col = 0; col < gridSize; col++) {
+                    const lng = bounds.getWest() + (col + 0.5) * lngStep;
+                    const time = this.walkingNetwork.getWalkingTime(lat, lng);
+                    walkingGrid.data[row * gridSize + col] = time !== null ? time : -1;
+                }
+            }
+        }
+
         // Send to worker
         const params = {
             width,
             height,
             pixelSize: effectivePixelSize,
             opacity: this.opacity,
+            maxTime: this.maxTime,
             origin: this.origin,
             bounds: {
                 north: bounds.getNorth(),
@@ -388,6 +441,11 @@ export class IsochoneCanvasLayer {
             },
             activeStations,
             obstacleData: obstacleData ? Array.from(obstacleData) : null,
+            walkingGrid: walkingGrid ? {
+                data: Array.from(walkingGrid.data),
+                size: walkingGrid.size,
+                bounds: walkingGrid.bounds
+            } : null,
             walkSpeedMps: this.walkSpeedMps,
             isPreview: this._isPreviewPass
         };
@@ -493,11 +551,26 @@ export class IsochoneCanvasLayer {
                 const lng = west + ((x + this.pixelSize / 2) / width) * lngRange;
                 const targetPt = { x: x + this.pixelSize / 2, y: y + this.pixelSize / 2 };
 
-                // 1. Walk Direct Time
+                // 1. Walk Direct Time (use walking network if available)
                 let timeWalkDirect = Infinity;
-                if (isPathSafe(originPt.x, originPt.y, targetPt.x, targetPt.y)) {
-                    const distDirect = distHaversine(this.origin[0], this.origin[1], lat, lng);
-                    timeWalkDirect = distDirect / this.walkSpeedMps;
+                
+                // Try walking network first
+                if (this.walkingNetwork && this.walkingNetwork.isLoaded && this.walkingNetwork.enabled) {
+                    const networkTime = this.walkingNetwork.getWalkingTime(lat, lng);
+                    if (networkTime !== null) {
+                        timeWalkDirect = networkTime;
+                    }
+                }
+                
+                // Fall back to straight-line if no network time
+                // Skip obstacle check for cities without walking network to avoid artifacts
+                if (timeWalkDirect === Infinity) {
+                    const hasWalkingNetwork = this.walkingNetwork && this.walkingNetwork.isLoaded && this.walkingNetwork.enabled;
+                    const pathIsSafe = hasWalkingNetwork ? isPathSafe(originPt.x, originPt.y, targetPt.x, targetPt.y) : true;
+                    if (pathIsSafe) {
+                        const distDirect = distHaversine(this.origin[0], this.origin[1], lat, lng);
+                        timeWalkDirect = distDirect / this.walkSpeedMps;
+                    }
                 }
 
                 // 2. Transit Time
@@ -505,9 +578,10 @@ export class IsochoneCanvasLayer {
                 const nearby = getNearbystations(lat, lng);
                 
                 for (const s of nearby) {
-                    if (Math.abs(s.lat - lat) + Math.abs(s.lon - lng) < 0.05) {
+                    if (Math.abs(s.lat - lat) + Math.abs(s.lon - lng) < 0.03) {
                         const distExit = distHaversine(lat, lng, s.lat, s.lon);
-                        const total = s.time + (distExit / this.walkSpeedMps);
+                        // 1.4x penalty for exit walk (accounts for non-straight street paths)
+                        const total = s.time + (distExit / this.walkSpeedMps) * 1.4;
 
                         if (total < timeTransit) {
                             const stationPt = this.map.latLngToContainerPoint([s.lat, s.lon]);
@@ -520,7 +594,7 @@ export class IsochoneCanvasLayer {
 
                 const totalTimeSec = Math.min(timeWalkDirect, timeTransit);
                 const totalTimeMin = totalTimeSec / 60;
-                const color = getColor(totalTimeMin, this.opacity);
+                const color = getColor(totalTimeMin, this.opacity, this.maxTime);
 
                 // Fill pixel block
                 for (let py = 0; py < this.pixelSize; py++) {
@@ -545,9 +619,21 @@ export class IsochoneCanvasLayer {
     getTravelTime(lat, lng) {
         if (!this.transitGraph) return null;
         
-        // Direct walk time
-        const distDirect = distHaversine(this.origin[0], this.origin[1], lat, lng);
-        let timeWalkDirect = distDirect / this.walkSpeedMps;
+        // Direct walk time - use walking network if available
+        let timeWalkDirect = Infinity;
+        
+        if (this.walkingNetwork && this.walkingNetwork.isLoaded && this.walkingNetwork.enabled) {
+            const networkTime = this.walkingNetwork.getWalkingTime(lat, lng);
+            if (networkTime !== null) {
+                timeWalkDirect = networkTime;
+            }
+        }
+        
+        // Fall back to straight-line
+        if (timeWalkDirect === Infinity) {
+            const distDirect = distHaversine(this.origin[0], this.origin[1], lat, lng);
+            timeWalkDirect = distDirect / this.walkSpeedMps;
+        }
         
         // Transit time
         let timeTransit = Infinity;

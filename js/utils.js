@@ -13,26 +13,27 @@ export function distHaversine(lat1, lon1, lat2, lon2) {
     return R * c;
 }
 
-// Color mapping for travel time (discrete 5-minute buckets)
-export function getColor(minutes, opacity) {
-    if (minutes >= 30) {
+// Color mapping for travel time (6 equal bands up to maxTime)
+export function getColor(minutes, opacity, maxTime = 30) {
+    if (minutes >= maxTime) {
         return [0, 0, 0, 0]; // Transparent
     }
 
     const alpha = Math.floor(opacity * 255);
+    const interval = maxTime / 6;
 
-    if (minutes < 5) {
-        return [59, 130, 246, alpha]; // 0-5: Blue (Tailwind blue-500)
-    } else if (minutes < 10) {
-        return [6, 182, 212, alpha];  // 5-10: Cyan (cyan-500)
-    } else if (minutes < 15) {
-        return [16, 185, 129, alpha]; // 10-15: Emerald (emerald-500)
-    } else if (minutes < 20) {
-        return [132, 204, 22, alpha]; // 15-20: Lime (lime-500)
-    } else if (minutes < 25) {
-        return [250, 204, 21, alpha]; // 20-25: Yellow (yellow-400)
+    if (minutes < interval) {
+        return [59, 130, 246, alpha];      // Blue
+    } else if (minutes < interval * 2) {
+        return [6, 182, 212, alpha];       // Cyan
+    } else if (minutes < interval * 3) {
+        return [16, 185, 129, alpha];      // Emerald
+    } else if (minutes < interval * 4) {
+        return [132, 204, 22, alpha];      // Lime
+    } else if (minutes < interval * 5) {
+        return [250, 204, 21, alpha];      // Yellow
     } else {
-        return [249, 115, 22, alpha]; // 25-30: Orange (orange-500)
+        return [249, 115, 22, alpha];      // Orange
     }
 }
 

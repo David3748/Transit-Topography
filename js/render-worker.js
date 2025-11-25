@@ -14,15 +14,18 @@ function distHaversine(lat1, lon1, lat2, lon2) {
     return R * c;
 }
 
-function getColor(minutes, opacity) {
-    if (minutes >= 30) return [0, 0, 0, 0];
+function getColor(minutes, opacity, maxTime = 30) {
+    if (minutes >= maxTime) return [0, 0, 0, 0];
     const alpha = Math.floor(opacity * 255);
-    if (minutes < 5) return [59, 130, 246, alpha];
-    if (minutes < 10) return [6, 182, 212, alpha];
-    if (minutes < 15) return [16, 185, 129, alpha];
-    if (minutes < 20) return [132, 204, 22, alpha];
-    if (minutes < 25) return [250, 204, 21, alpha];
-    return [249, 115, 22, alpha];
+    
+    // 6 color bands
+    const interval = maxTime / 6;
+    if (minutes < interval) return [59, 130, 246, alpha];      // Blue
+    if (minutes < interval * 2) return [6, 182, 212, alpha];   // Cyan
+    if (minutes < interval * 3) return [16, 185, 129, alpha];  // Emerald
+    if (minutes < interval * 4) return [132, 204, 22, alpha];  // Lime
+    if (minutes < interval * 5) return [250, 204, 21, alpha];  // Yellow
+    return [249, 115, 22, alpha];                               // Orange
 }
 
 // Grid-based spatial index for stations
@@ -67,12 +70,37 @@ class WorkerSpatialIndex {
     }
 }
 
+// Helper to lookup walking time from pre-computed grid
+function getWalkingTimeFromGrid(lat, lng, walkingGrid) {
+    if (!walkingGrid || !walkingGrid.data) return null;
+    
+    const { data, size, bounds } = walkingGrid;
+    const latRange = bounds.north - bounds.south;
+    const lngRange = bounds.east - bounds.west;
+    
+    // Check if point is within grid bounds
+    if (lat < bounds.south || lat > bounds.north || lng < bounds.west || lng > bounds.east) {
+        return null;
+    }
+    
+    // Calculate grid cell (with bilinear interpolation)
+    const row = ((lat - bounds.south) / latRange) * size;
+    const col = ((lng - bounds.west) / lngRange) * size;
+    
+    // Clamp to valid indices
+    const r = Math.min(Math.max(Math.floor(row), 0), size - 1);
+    const c = Math.min(Math.max(Math.floor(col), 0), size - 1);
+    
+    const time = data[r * size + c];
+    return time >= 0 ? time : null; // -1 means no data
+}
+
 // Main render function
 function render(params) {
     const {
-        width, height, pixelSize, opacity,
+        width, height, pixelSize, opacity, maxTime = 30,
         origin, bounds, activeStations, obstacleData,
-        walkSpeedMps
+        walkSpeedMps, walkingGrid
     } = params;
 
     const data = new Uint8ClampedArray(width * height * 4);
@@ -122,27 +150,45 @@ function render(params) {
             const targetX = x + pixelSize / 2;
             const targetY = y + pixelSize / 2;
 
-            // 1. Walk Direct Time
+            // 1. Walk Direct Time - try walking grid first, then fall back to straight line
             let timeWalkDirect = Infinity;
-            if (isPathSafe(originX, originY, targetX, targetY)) {
-                const distDirect = distHaversine(origin[0], origin[1], lat, lng);
-                timeWalkDirect = distDirect / walkSpeedMps;
+            
+            // Try walking network grid first
+            if (walkingGrid) {
+                const gridTime = getWalkingTimeFromGrid(lat, lng, walkingGrid);
+                if (gridTime !== null) {
+                    timeWalkDirect = gridTime;
+                }
+            }
+            
+            // Fall back to straight-line if no grid data
+            // Only check path safety if we have walking grid (otherwise skip obstacle check to avoid artifacts)
+            if (timeWalkDirect === Infinity) {
+                const pathIsSafe = walkingGrid ? isPathSafe(originX, originY, targetX, targetY) : true;
+                if (pathIsSafe) {
+                    const distDirect = distHaversine(origin[0], origin[1], lat, lng);
+                    timeWalkDirect = distDirect / walkSpeedMps;
+                }
             }
 
             // 2. Transit Time - use spatial index for O(1) lookup
             let timeTransit = Infinity;
             
-            // Query nearby stations (within ~3km walking)
-            const nearbyStations = stationIndex.query(lat, lng, 3000);
+            // Query nearby stations (within ~2km walking)
+            const nearbyStations = stationIndex.query(lat, lng, 2000);
             
             for (const s of nearbyStations) {
                 // Quick distance estimate
                 const dLat = Math.abs(s.lat - lat);
                 const dLon = Math.abs(s.lon - lng);
-                if (dLat + dLon > 0.05) continue; // Skip if too far
+                if (dLat + dLon > 0.03) continue; // Skip if too far
                 
                 const distExit = distHaversine(lat, lng, s.lat, s.lon);
-                const total = s.time + (distExit / walkSpeedMps);
+                
+                // Apply 1.4x walking penalty for exit walk (accounts for non-straight paths)
+                // This makes transit reach more realistic (not perfect circles around stations)
+                const exitWalkTime = (distExit / walkSpeedMps) * 1.4;
+                const total = s.time + exitWalkTime;
 
                 if (total < timeTransit) {
                     // Check walk safety from station to pixel
@@ -157,7 +203,7 @@ function render(params) {
             // Min Time
             const totalTimeSec = Math.min(timeWalkDirect, timeTransit);
             const totalTimeMin = totalTimeSec / 60;
-            const color = getColor(totalTimeMin, opacity);
+            const color = getColor(totalTimeMin, opacity, maxTime);
 
             // Fill pixel block
             for (let py = 0; py < pixelSize; py++) {

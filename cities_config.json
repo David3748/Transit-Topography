@@ -1,65 +1,302 @@
 {
   "nyc": {
-    "name": "New York City (MTA)",
+    "name": "New York City",
     "gtfs_url": "http://web.mta.info/developers/data/nyct/subway/google_transit.zip",
-    "center": [
-      40.7527,
-      -73.9772
-    ],
-    "zoom": 13
+    "center": [40.7527, -73.9772],
+    "zoom": 13,
+    "region": "north_america",
+    "flag": "🇺🇸"
   },
   "nyc_bus_manhattan": {
     "name": "NYC Bus (Manhattan)",
     "gtfs_url": "http://web.mta.info/developers/data/nyct/bus/google_transit_manhattan.zip",
-    "center": [
-      40.7527,
-      -73.9772
-    ],
-    "zoom": 13
+    "center": [40.7527, -73.9772],
+    "zoom": 13,
+    "region": "north_america",
+    "flag": "🇺🇸",
+    "hidden": true
   },
   "nyc_bus_brooklyn": {
     "name": "NYC Bus (Brooklyn)",
     "gtfs_url": "http://web.mta.info/developers/data/nyct/bus/google_transit_brooklyn.zip",
-    "center": [
-      40.6782,
-      -73.9442
-    ],
-    "zoom": 13
+    "center": [40.6782, -73.9442],
+    "zoom": 13,
+    "region": "north_america",
+    "flag": "🇺🇸",
+    "hidden": true
   },
   "sf": {
-    "name": "San Francisco (BART)",
+    "name": "San Francisco",
     "gtfs_url": "https://www.bart.gov/dev/schedules/google_transit.zip",
-    "center": [
-      37.7749,
-      -122.4194
-    ],
-    "zoom": 12
+    "center": [37.7749, -122.4194],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇺🇸"
   },
   "sf_muni": {
     "name": "San Francisco (Muni)",
     "gtfs_url": "https://transitfeeds.com/p/sfmta/60/latest/download",
-    "center": [
-      37.7749,
-      -122.4194
-    ],
-    "zoom": 12
+    "center": [37.7749, -122.4194],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇺🇸",
+    "hidden": true
   },
   "boston": {
-    "name": "Boston (MBTA)",
+    "name": "Boston",
     "gtfs_url": "https://cdn.mbta.com/MBTA_GTFS.zip",
-    "center": [
-      42.3601,
-      -71.0589
-    ],
-    "zoom": 13
+    "center": [42.3601, -71.0589],
+    "zoom": 13,
+    "region": "north_america",
+    "flag": "🇺🇸"
   },
   "chicago": {
-    "name": "Chicago (CTA)",
+    "name": "Chicago",
     "gtfs_url": "https://www.transitchicago.com/downloads/sch_data/google_transit.zip",
-    "center": [
-      41.8781,
-      -87.6298
-    ],
-    "zoom": 12
+    "center": [41.8781, -87.6298],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇺🇸"
+  },
+  "dc": {
+    "name": "Washington DC",
+    "gtfs_url": "https://transitfeeds.com/p/wmata/75/latest/download",
+    "center": [38.9072, -77.0369],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇺🇸"
+  },
+  "la": {
+    "name": "Los Angeles",
+    "gtfs_url": "https://gitlab.com/LACMTA/gtfs_rail/-/raw/master/gtfs_rail.zip",
+    "center": [34.0522, -118.2437],
+    "zoom": 11,
+    "region": "north_america",
+    "flag": "🇺🇸"
+  },
+  "seattle": {
+    "name": "Seattle",
+    "gtfs_url": "https://metro.kingcounty.gov/GTFS/google_transit.zip",
+    "center": [47.6062, -122.3321],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇺🇸"
+  },
+  "portland": {
+    "name": "Portland",
+    "gtfs_url": "https://developer.trimet.org/schedule/gtfs.zip",
+    "center": [45.5152, -122.6784],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇺🇸"
+  },
+  "toronto": {
+    "name": "Toronto",
+    "gtfs_url": "http://opendata.toronto.ca/TTC/routes/OpenData_TTC_Schedules.zip",
+    "center": [43.6532, -79.3832],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇨🇦"
+  },
+  "montreal": {
+    "name": "Montreal",
+    "gtfs_url": "https://transitfeeds.com/p/societe-de-transport-de-montreal/39/latest/download",
+    "center": [45.5017, -73.5673],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇨🇦"
+  },
+  "vancouver": {
+    "name": "Vancouver",
+    "gtfs_url": "https://transitfeeds.com/p/translink-vancouver/29/latest/download",
+    "center": [49.2827, -123.1207],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇨🇦"
+  },
+  "philly": {
+    "name": "Philadelphia",
+    "gtfs_url": "https://transitfeeds.com/p/septa/262/latest/download",
+    "center": [39.9526, -75.1652],
+    "zoom": 12,
+    "region": "north_america",
+    "flag": "🇺🇸"
+  },
+  "atlanta": {
+    "name": "Atlanta",
+    "gtfs_url": "https://transitfeeds.com/p/metropolitan-atlanta-rapid-transit-authority/65/latest/download",
+    "center": [33.7490, -84.3880],
+    "zoom": 11,
+    "region": "north_america",
+    "flag": "🇺🇸"
+  },
+  "mexico_city": {
+    "name": "Mexico City",
+    "gtfs_url": "https://transitfeeds.com/p/metro-de-la-ciudad-de-mexico/70/latest/download",
+    "center": [19.4326, -99.1332],
+    "zoom": 11,
+    "region": "north_america",
+    "flag": "🇲🇽"
+  },
+  "london": {
+    "name": "London",
+    "gtfs_url": "FETCH_VIA_TFL_API",
+    "note": "Run fetch_london.py to generate data from TfL API",
+    "center": [51.5074, -0.1278],
+    "zoom": 11,
+    "region": "europe",
+    "flag": "🇬🇧"
+  },
+  "paris": {
+    "name": "Paris",
+    "gtfs_url": "https://data.iledefrance-mobilites.fr/explore/dataset/offre-horaires-tc-gtfs-idfm/files/a925e164271e4bca93433756d6a340d1/download/",
+    "center": [48.8566, 2.3522],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇫🇷"
+  },
+  "berlin": {
+    "name": "Berlin",
+    "gtfs_url": "https://www.vbb.de/vbbgtfs",
+    "center": [52.5200, 13.4050],
+    "zoom": 11,
+    "region": "europe",
+    "flag": "🇩🇪"
+  },
+  "amsterdam": {
+    "name": "Amsterdam",
+    "gtfs_url": "https://transitfeeds.com/p/ov/814/latest/download",
+    "center": [52.3676, 4.9041],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇳🇱"
+  },
+  "copenhagen": {
+    "name": "Copenhagen",
+    "gtfs_url": "https://transitfeeds.com/p/rejseplanen/705/latest/download",
+    "center": [55.6761, 12.5683],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇩🇰"
+  },
+  "madrid": {
+    "name": "Madrid",
+    "gtfs_url": "https://transitfeeds.com/p/consorcio-regional-de-transportes-de-madrid/735/latest/download",
+    "center": [40.4168, -3.7038],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇪🇸"
+  },
+  "barcelona": {
+    "name": "Barcelona",
+    "gtfs_url": "https://transitfeeds.com/p/transports-metropolitans-de-barcelona/995/latest/download",
+    "center": [41.3851, 2.1734],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇪🇸"
+  },
+  "vienna": {
+    "name": "Vienna",
+    "gtfs_url": "https://transitfeeds.com/p/wiener-linien/888/latest/download",
+    "center": [48.2082, 16.3738],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇦🇹"
+  },
+  "stockholm": {
+    "name": "Stockholm",
+    "gtfs_url": "https://transitfeeds.com/p/storstockholms-lokaltrafik/50/latest/download",
+    "center": [59.3293, 18.0686],
+    "zoom": 11,
+    "region": "europe",
+    "flag": "🇸🇪"
+  },
+  "munich": {
+    "name": "Munich",
+    "gtfs_url": "https://transitfeeds.com/p/mvv/922/latest/download",
+    "center": [48.1351, 11.5820],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇩🇪"
+  },
+  "oslo": {
+    "name": "Oslo",
+    "gtfs_url": "https://transitfeeds.com/p/ruter/240/latest/download",
+    "center": [59.9139, 10.7522],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇳🇴"
+  },
+  "helsinki": {
+    "name": "Helsinki",
+    "gtfs_url": "https://transitfeeds.com/p/helsinki-regional-transport/735/latest/download",
+    "center": [60.1699, 24.9384],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇫🇮"
+  },
+  "prague": {
+    "name": "Prague",
+    "gtfs_url": "https://transitfeeds.com/p/dopravni-podnik-hlavniho-mesta-prahy/352/latest/download",
+    "center": [50.0755, 14.4378],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇨🇿"
+  },
+  "milan": {
+    "name": "Milan",
+    "gtfs_url": "https://transitfeeds.com/p/azienda-trasporti-milanesi/1032/latest/download",
+    "center": [45.4642, 9.1900],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇮🇹"
+  },
+  "zurich": {
+    "name": "Zurich",
+    "gtfs_url": "https://transitfeeds.com/p/zvv/1034/latest/download",
+    "center": [47.3769, 8.5417],
+    "zoom": 12,
+    "region": "europe",
+    "flag": "🇨🇭"
+  },
+  "hong_kong": {
+    "name": "Hong Kong",
+    "gtfs_url": "https://transitfeeds.com/p/mtr/1071/latest/download",
+    "center": [22.3193, 114.1694],
+    "zoom": 12,
+    "region": "asia_pacific",
+    "flag": "🇭🇰"
+  },
+  "singapore": {
+    "name": "Singapore",
+    "gtfs_url": "https://transitfeeds.com/p/land-transport-authority/957/latest/download",
+    "center": [1.3521, 103.8198],
+    "zoom": 12,
+    "region": "asia_pacific",
+    "flag": "🇸🇬"
+  },
+  "sydney": {
+    "name": "Sydney",
+    "gtfs_url": "https://transitfeeds.com/p/transport-for-nsw/237/latest/download",
+    "center": [-33.8688, 151.2093],
+    "zoom": 12,
+    "region": "asia_pacific",
+    "flag": "🇦🇺"
+  },
+  "melbourne": {
+    "name": "Melbourne",
+    "gtfs_url": "https://transitfeeds.com/p/ptv/497/latest/download",
+    "center": [-37.8136, 144.9631],
+    "zoom": 12,
+    "region": "asia_pacific",
+    "flag": "🇦🇺"
+  },
+  "sao_paulo": {
+    "name": "São Paulo",
+    "gtfs_url": "https://transitfeeds.com/p/sptrans/1049/latest/download",
+    "center": [-23.5505, -46.6333],
+    "zoom": 12,
+    "region": "south_america",
+    "flag": "🇧🇷"
   }
 }

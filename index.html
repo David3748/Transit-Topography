@@ -113,6 +113,72 @@
             border: 1px solid white;
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
+
+        /* City selector modal */
+        .city-modal {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        
+        .city-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 12px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            border: 1px solid var(--border);
+            background: var(--bg-panel);
+        }
+        
+        .city-chip:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+            transform: translateY(-1px);
+        }
+        
+        .city-chip.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        
+        .region-section {
+            margin-bottom: 16px;
+        }
+        
+        .region-title {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            padding-left: 4px;
+        }
+        
+        .city-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        
+        .city-chip.hidden {
+            display: none;
+        }
+        
+        #city-title-btn {
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        
+        #city-title-btn:hover {
+            color: var(--accent-hover);
+        }
     </style>
 
     <!-- Load Config & Engine -->
@@ -128,7 +194,12 @@
     <!-- UI Overlay -->
     <div class="absolute top-4 left-4 z-[1000] glass-panel p-6 rounded-2xl max-w-sm transition-all duration-300">
         <h1 class="text-2xl font-extrabold mb-1 tracking-tight text-gray-900">
-            <span id="city-title" class="text-blue-600">NYC</span> Transit Topography
+            <button id="city-title-btn" class="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1" title="Click to change city">
+                <span id="city-title">New York City</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
         </h1>
         <p class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Isochrone Simulator</p>
 
@@ -154,25 +225,33 @@
                 </ul>
             </div>
 
-            <p class="text-xs text-gray-500 mt-1">Click address to search, click map to move, or right-click for travel time.</p>
+            <p class="text-xs text-gray-500 mt-1"><strong>Ctrl+click</strong> map to move origin. Right-click for travel time.</p>
         </div>
 
         <div class="mb-6">
-            <div class="flex justify-between text-xs mb-2 text-gray-500">
-                <span>Travel Time Zones (5m Blocks)</span>
+            <div class="flex justify-between items-center text-xs mb-2 text-gray-500">
+                <span>Travel Time Zones</span>
+                <select id="max-time-select"
+                    class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <option value="15">15 min</option>
+                    <option value="30" selected>30 min</option>
+                    <option value="45">45 min</option>
+                    <option value="60">60 min</option>
+                    <option value="90">90 min</option>
+                </select>
             </div>
 
             <!-- Discrete Legend Blocks -->
-            <div class="flex h-4 w-full rounded-md overflow-hidden mb-1 border border-gray-200">
-                <div class="flex-1" style="background-color: rgb(59, 130, 246);"></div> <!-- 0-5 -->
-                <div class="flex-1" style="background-color: rgb(6, 182, 212);"></div> <!-- 5-10 -->
-                <div class="flex-1" style="background-color: rgb(16, 185, 129);"></div> <!-- 10-15 -->
-                <div class="flex-1" style="background-color: rgb(132, 204, 22);"></div> <!-- 15-20 -->
-                <div class="flex-1" style="background-color: rgb(250, 204, 21);"></div> <!-- 20-25 -->
-                <div class="flex-1" style="background-color: rgb(249, 115, 22);"></div> <!-- 25-30 -->
+            <div id="legend-blocks" class="flex h-4 w-full rounded-md overflow-hidden mb-1 border border-gray-200">
+                <div class="flex-1" style="background-color: rgb(59, 130, 246);"></div>
+                <div class="flex-1" style="background-color: rgb(6, 182, 212);"></div>
+                <div class="flex-1" style="background-color: rgb(16, 185, 129);"></div>
+                <div class="flex-1" style="background-color: rgb(132, 204, 22);"></div>
+                <div class="flex-1" style="background-color: rgb(250, 204, 21);"></div>
+                <div class="flex-1" style="background-color: rgb(249, 115, 22);"></div>
             </div>
 
-            <div class="flex justify-between text-[10px] text-gray-500 font-mono px-1">
+            <div id="legend-labels" class="flex justify-between text-[10px] text-gray-500 font-mono px-1">
                 <span>0</span>
                 <span>5</span>
                 <span>10</span>
@@ -193,9 +272,10 @@
                 <label class="text-xs font-medium text-gray-700">Resolution (Speed vs Quality)</label>
                 <select id="res-select"
                     class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500">
-                    <option value="8">Low (Fast)</option>
-                    <option value="4" selected>Medium</option>
-                    <option value="2">High (Slow)</option>
+                    <option value="6">Low (Fast)</option>
+                    <option value="3">Medium</option>
+                    <option value="2" selected>High</option>
+                    <option value="1">Ultra (Slow)</option>
                 </select>
             </div>
         </div>
@@ -206,18 +286,10 @@
                 a rapid transit network model. It calculates the optimal path from the origin to every pixel on screen.
             </p>
             <div class="mt-3">
-                <!-- City Selector -->
-                <div class="mb-2">
-                    <label class="text-xs font-medium text-gray-700 block mb-1">Select City</label>
-                    <select id="city-select"
-                        class="w-full bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
-                        <option value="nyc">New York City (MTA)</option>
-                        <option value="sf">San Francisco (BART)</option>
-                        <option value="boston">Boston (MBTA)</option>
-                        <option value="chicago">Chicago (CTA)</option>
-                        <option value="other">Other (Global - Less Accurate)</option>
+                <!-- Hidden city select for JS compatibility -->
+                <select id="city-select" class="hidden">
+                    <option value="nyc">New York City</option>
                     </select>
-                </div>
 
                 <!-- Bus Toggle -->
                 <div class="mb-2 flex items-center">
@@ -241,12 +313,12 @@
                     <label for="lines-toggle" class="ml-2 text-xs font-medium text-gray-700">Show Transit Lines</label>
                 </div>
 
-                <!-- Realistic Walking Toggle -->
-                <div class="mb-3 flex items-center">
-                    <input id="buildings-toggle" type="checkbox"
+                <!-- Street Network Walking Toggle (only for supported cities) -->
+                <div id="walking-network-container" class="mb-3 flex items-center hidden">
+                    <input id="walking-network-toggle" type="checkbox" checked
                         class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
-                    <label for="buildings-toggle" class="ml-2 text-xs font-medium text-gray-700">Realistic Walking</label>
-                    <span class="ml-1 text-[10px] text-gray-400" title="Avoids walking through buildings">(beta)</span>
+                    <label for="walking-network-toggle" class="ml-2 text-xs font-medium text-gray-700">Use Street Network</label>
+                    <span id="walking-network-cities" class="ml-1 text-[10px] text-gray-400"></span>
                 </div>
 
                 <button id="fetch-stations-btn"
@@ -323,6 +395,52 @@
         </button>
     </div>
 
+    <!-- City Selector Modal -->
+    <div id="city-modal" class="fixed inset-0 bg-black/50 z-[3000] hidden flex items-center justify-center">
+        <div class="glass-panel rounded-2xl p-6 max-w-lg mx-4 shadow-2xl city-modal">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-gray-900">Select City</h2>
+                <button id="city-modal-close" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+            </div>
+            
+            <!-- Search Input -->
+            <div class="mb-4">
+                <input id="city-search" type="text" 
+                    class="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Search cities..." autocomplete="off" />
+            </div>
+            
+            <!-- City Grid by Region -->
+            <div id="city-grid-container">
+                <!-- North America -->
+                <div class="region-section" data-region="north_america">
+                    <div class="region-title">North America</div>
+                    <div class="city-grid" id="cities-north-america"></div>
+                </div>
+                
+                <!-- Europe -->
+                <div class="region-section" data-region="europe">
+                    <div class="region-title">Europe</div>
+                    <div class="city-grid" id="cities-europe"></div>
+                </div>
+                
+                <!-- Asia-Pacific -->
+                <div class="region-section" data-region="asia_pacific">
+                    <div class="region-title">Asia-Pacific</div>
+                    <div class="city-grid" id="cities-asia-pacific"></div>
+                </div>
+                
+                <!-- South America -->
+                <div class="region-section" data-region="south_america">
+                    <div class="region-title">South America</div>
+                    <div class="city-grid" id="cities-south-america"></div>
+                </div>
+            </div>
+            
+            <p class="mt-4 text-xs text-gray-500 text-center">Click a city to load its transit network</p>
+        </div>
+    </div>
+
     <!-- Help Modal -->
     <div id="help-modal" class="fixed inset-0 bg-black/50 z-[3000] hidden flex items-center justify-center">
         <div class="glass-panel rounded-2xl p-6 max-w-md mx-4 shadow-2xl">
@@ -357,7 +475,7 @@
             const WALK_SPEED_MPS = 1.3;
             const TRANSFER_PENALTY_SEC = 300;
             let origin = [40.7527, -73.9772];
-            let opacity = 0.6;
+        let opacity = 0.6;
             let pixelSize = 4;
             
             const transitGraph = new TransitGraph();
@@ -372,6 +490,16 @@
                 'sf': { center: [37.7749, -122.4194], zoom: 12, files: ['transit_data/sf.json', 'transit_data/sf_muni.json'], busFiles: ['transit_data/sf_bus.json', 'transit_data/sf_muni_bus.json'], water: 'transit_data/water_sf.json' },
                 'boston': { center: [42.3601, -71.0589], zoom: 13, files: ['transit_data/boston.json'], busFiles: ['transit_data/boston_bus.json'], water: 'transit_data/water_boston.json' },
                 'chicago': { center: [41.8781, -87.6298], zoom: 12, files: ['transit_data/chicago.json'], busFiles: ['transit_data/chicago_bus.json'], water: 'transit_data/water_chicago.json' },
+                'dc': { center: [38.9072, -77.0369], zoom: 12, files: ['transit_data/dc.json'], busFiles: ['transit_data/dc_bus.json'], water: 'transit_data/water_dc.json' },
+                'la': { center: [34.0522, -118.2437], zoom: 11, files: ['transit_data/la.json'], busFiles: ['transit_data/la_bus.json'], water: 'transit_data/water_la.json' },
+                'seattle': { center: [47.6062, -122.3321], zoom: 11, files: ['transit_data/seattle.json'], busFiles: ['transit_data/seattle_bus.json'], water: 'transit_data/water_seattle.json' },
+                'portland': { center: [45.5152, -122.6784], zoom: 12, files: ['transit_data/portland.json'], busFiles: ['transit_data/portland_bus.json'], water: 'transit_data/water_portland.json' },
+                'toronto': { center: [43.6532, -79.3832], zoom: 12, files: ['transit_data/toronto.json'], busFiles: ['transit_data/toronto_bus.json'], water: 'transit_data/water_toronto.json' },
+                'copenhagen': { center: [55.6761, 12.5683], zoom: 12, files: ['transit_data/copenhagen.json'], busFiles: ['transit_data/copenhagen_bus.json'], water: 'transit_data/water_copenhagen.json' },
+                'london': { center: [51.5074, -0.1278], zoom: 11, files: ['transit_data/london.json'], busFiles: [], water: 'transit_data/water_london.json' },
+                'paris': { center: [48.8566, 2.3522], zoom: 12, files: ['transit_data/paris.json'], busFiles: ['transit_data/paris_bus.json'], water: 'transit_data/water_paris.json' },
+                'berlin': { center: [52.5200, 13.4050], zoom: 11, files: ['transit_data/berlin.json'], busFiles: ['transit_data/berlin_bus.json'], water: 'transit_data/water_berlin.json' },
+                'amsterdam': { center: [52.3676, 4.9041], zoom: 12, files: ['transit_data/amsterdam.json'], busFiles: ['transit_data/amsterdam_bus.json'], water: 'transit_data/water_amsterdam.json' },
                 'other': { center: null, zoom: null, files: [], busFiles: [], water: null }
             };
             
@@ -406,7 +534,11 @@
                 });
                 originMarker = L.marker(origin, { icon: markerIcon }).addTo(map);
                 
-                map.on('click', e => updateOrigin(e.latlng.lat, e.latlng.lng));
+                map.on('click', e => {
+                    if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+                        updateOrigin(e.latlng.lat, e.latlng.lng);
+                    }
+                });
                 initCanvasLayer();
                 initDataFetching();
             }

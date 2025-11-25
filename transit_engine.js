@@ -597,6 +597,234 @@ class WaterMask {
     }
 }
 
+/**
+ * Walking Network - Uses actual street network for realistic walking times
+ */
+class WalkingNetwork {
+    constructor() {
+        this.nodes = new Map(); // id -> {lat, lon, neighbors: [{id, time}]}
+        this.isLoaded = false;
+        this.enabled = true;
+        
+        // Spatial index for fast nearest-node lookups
+        this.grid = new Map(); // "x,y" -> [node]
+        this.gridCellSize = 50; // ~50 meters per cell
+        
+        // Pre-computed walking times from current origin
+        this.walkingTimes = new Map(); // nodeId -> time in seconds
+        this.currentOrigin = null;
+    }
+
+    async loadNetwork(url) {
+        try {
+            const cacheKey = `walking_cache_${url}`;
+            const cached = localStorage.getItem(cacheKey);
+            let data;
+            
+            if (cached) {
+                try {
+                    const cacheData = JSON.parse(cached);
+                    if (Date.now() - cacheData.timestamp < 7 * 24 * 60 * 60 * 1000) {
+                        data = cacheData.data;
+                        console.log(`Loaded walking network from cache`);
+                    }
+                } catch (e) {
+                    console.warn('Walking cache parse error');
+                }
+            }
+            
+            if (!data) {
+                const resp = await fetch(url);
+                if (!resp.ok) {
+                    console.warn(`Walking network not found: ${url}`);
+                    this.isLoaded = false;
+                    return false;
+                }
+                data = await resp.json();
+                
+                // Try to cache (may fail if too large)
+                try {
+                    localStorage.setItem(cacheKey, JSON.stringify({
+                        timestamp: Date.now(),
+                        data: data
+                    }));
+                } catch (e) {
+                    console.warn('Walking network too large to cache');
+                }
+            }
+
+            // Clear existing
+            this.nodes.clear();
+            this.grid.clear();
+            this.walkingTimes.clear();
+            this.currentOrigin = null;
+
+            // Load nodes
+            data.nodes.forEach(n => {
+                this.nodes.set(n.id, {
+                    id: n.id,
+                    lat: n.lat,
+                    lon: n.lon,
+                    neighbors: []
+                });
+                
+                // Add to spatial index
+                const key = this._getGridKey(n.lat, n.lon);
+                if (!this.grid.has(key)) this.grid.set(key, []);
+                this.grid.get(key).push(n);
+            });
+
+            // Load edges
+            data.edges.forEach(e => {
+                const node = this.nodes.get(e.from);
+                if (node) {
+                    node.neighbors.push({ id: e.to, time: e.time });
+                }
+            });
+
+            this.isLoaded = true;
+            console.log(`Walking Network: ${this.nodes.size} nodes loaded`);
+            return true;
+        } catch (err) {
+            console.warn("Walking network not available:", err.message);
+            this.isLoaded = false;
+            return false;
+        }
+    }
+
+    _getGridKey(lat, lon) {
+        // Convert to meters-ish scale
+        const y = Math.floor(lat * 111000 / this.gridCellSize);
+        const x = Math.floor(lon * 111000 * Math.cos(lat * Math.PI / 180) / this.gridCellSize);
+        return `${x},${y}`;
+    }
+
+    // Find nearest walkable node to a point
+    findNearestNode(lat, lon, maxDist = 500) {
+        if (!this.isLoaded) return null;
+        
+        const key = this._getGridKey(lat, lon);
+        const [kx, ky] = key.split(',').map(Number);
+        
+        let bestNode = null;
+        let bestDist = maxDist;
+        
+        // Search in expanding rings
+        for (let radius = 0; radius <= 5; radius++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dy = -radius; dy <= radius; dy++) {
+                    if (radius > 0 && Math.abs(dx) < radius && Math.abs(dy) < radius) continue;
+                    
+                    const cellKey = `${kx + dx},${ky + dy}`;
+                    const cellNodes = this.grid.get(cellKey);
+                    if (!cellNodes) continue;
+                    
+                    for (const n of cellNodes) {
+                        const dist = this._haversine(lat, lon, n.lat, n.lon);
+                        if (dist < bestDist) {
+                            bestDist = dist;
+                            bestNode = n;
+                        }
+                    }
+                }
+            }
+            if (bestNode) break; // Found one in this ring
+        }
+        
+        return bestNode ? { node: bestNode, dist: bestDist } : null;
+    }
+
+    // Pre-compute walking times from origin using Dijkstra
+    computeFromOrigin(originLat, originLon) {
+        if (!this.isLoaded || !this.enabled) return;
+        
+        // Check if we already computed for this origin
+        if (this.currentOrigin && 
+            Math.abs(this.currentOrigin.lat - originLat) < 0.0001 && 
+            Math.abs(this.currentOrigin.lon - originLon) < 0.0001) {
+            return; // Already computed
+        }
+        
+        const startTime = performance.now();
+        
+        this.walkingTimes.clear();
+        this.currentOrigin = { lat: originLat, lon: originLon };
+        
+        // Find nearest node to origin
+        const startResult = this.findNearestNode(originLat, originLon, 1000);
+        if (!startResult) {
+            console.warn('No walking network node near origin');
+            return;
+        }
+        
+        // Dijkstra from the start node
+        const pq = new BinaryHeap();
+        const startTime_walk = startResult.dist / 1.3; // Time to walk to nearest node
+        
+        this.walkingTimes.set(startResult.node.id, startTime_walk);
+        pq.push({ id: startResult.node.id, time: startTime_walk });
+        
+        while (pq.size() > 0) {
+            const { id: currId, time: currTime } = pq.pop();
+            
+            if (currTime > this.walkingTimes.get(currId)) continue;
+            
+            const currNode = this.nodes.get(currId);
+            if (!currNode) continue;
+            
+            for (const neighbor of currNode.neighbors) {
+                const newTime = currTime + neighbor.time;
+                
+                // Limit to 60 minutes of walking (optimization)
+                if (newTime > 3600) continue;
+                
+                if (!this.walkingTimes.has(neighbor.id) || newTime < this.walkingTimes.get(neighbor.id)) {
+                    this.walkingTimes.set(neighbor.id, newTime);
+                    pq.push({ id: neighbor.id, time: newTime });
+                }
+            }
+        }
+        
+        console.log(`Walking network: ${this.walkingTimes.size} nodes in ${(performance.now() - startTime).toFixed(0)}ms`);
+    }
+
+    // Get walking time to a point (using pre-computed times)
+    getWalkingTime(lat, lon) {
+        if (!this.isLoaded || !this.enabled) {
+            return null;
+        }
+        
+        if (this.walkingTimes.size === 0) {
+            // Walking times not computed yet - this is the issue
+            return null;
+        }
+        
+        // Find nearest node with walking time
+        const result = this.findNearestNode(lat, lon, 500); // Increased search radius
+        if (!result) return null;
+        
+        const nodeTime = this.walkingTimes.get(result.node.id);
+        if (nodeTime === undefined) {
+            // Node exists but doesn't have a computed time (not reachable from origin)
+            return null;
+        }
+        
+        // Add time to walk from node to actual point
+        const lastMileTime = result.dist / 1.3;
+        return nodeTime + lastMileTime;
+    }
+
+    _haversine(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+}
+
 // Make classes available globally for the app
 if (typeof window !== 'undefined') {
     window.TransitGraph = TransitGraph;
@@ -604,4 +832,5 @@ if (typeof window !== 'undefined') {
     window.WaterMask = WaterMask;
     window.BuildingMask = BuildingMask;
     window.BinaryHeap = BinaryHeap;
+    window.WalkingNetwork = WalkingNetwork;
 }
