@@ -4,6 +4,9 @@
  * Handles data fetching, graph building, and pathfinding.
  */
 
+// Cache version - increment to invalidate cached data after updates
+const CACHE_VERSION = 2;
+
 class TransitGraph {
     constructor() {
         this.nodes = new Map(); // id -> { lat, lon, neighbors: Map(id -> weight) }
@@ -251,8 +254,8 @@ class TransitFetcher {
 
     async loadStaticGraph(url, clear = true) {
         try {
-            // Check localStorage cache first
-            const cacheKey = `transit_cache_${url}`;
+            // Check localStorage cache first (versioned to invalidate on data updates)
+            const cacheKey = `transit_cache_v${CACHE_VERSION}_${url}`;
             const cached = localStorage.getItem(cacheKey);
             let data;
             
