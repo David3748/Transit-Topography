@@ -1,0 +1,49 @@
+{
+  "name": "transit-topography",
+  "version": "1.0.0",
+  "description": "Interactive transit isochrone visualization tool for 35+ cities worldwide",
+  "main": "index.html",
+  "type": "module",
+  "scripts": {
+    "start": "npx http-server -p 8000 -o",
+    "dev": "npx http-server -p 8000 -o",
+    "lint": "eslint js/**/*.js *.js --max-warnings 0",
+    "lint:fix": "eslint js/**/*.js *.js --fix",
+    "format": "prettier --write \"**/*.{js,json,html,css,md}\"",
+    "format:check": "prettier --check \"**/*.{js,json,html,css,md}\"",
+    "generate:city": "python generate_city_data.py",
+    "generate:walking": "python generate_walking_network.py",
+    "generate:all": "python fetch_missing_cities.py",
+    "optimize:walking": "python optimize_walking.py"
+  },
+  "keywords": [
+    "transit",
+    "isochrone",
+    "visualization",
+    "public-transport",
+    "gtfs",
+    "mapping",
+    "leaflet",
+    "urban-planning",
+    "accessibility"
+  ],
+  "author": "David3748",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/David3748/Transit-Topography.git"
+  },
+  "bugs": {
+    "url": "https://github.com/David3748/Transit-Topography/issues"
+  },
+  "homepage": "https://david3748.github.io/Transit-Topography/",
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "http-server": "^14.1.1"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
+  }
+}
