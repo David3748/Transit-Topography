@@ -93,14 +93,15 @@ export class IsochoneCanvasLayer {
     }
 
     private _initWebGL(): void {
-        try {
-            const renderer = new WebGLRenderer();
-            if (renderer.isSupported) {
-                this.webglRenderer = renderer;
-            }
-        } catch {
-            // WebGL unavailable; worker fallback will be used
-        }
+        // TODO: re-enable once WebGL shader color gradient is fixed
+        // try {
+        //     const renderer = new WebGLRenderer();
+        //     if (renderer.isSupported) {
+        //         this.webglRenderer = renderer;
+        //     }
+        // } catch {
+        //     // WebGL unavailable; worker fallback will be used
+        // }
     }
 
     private _initWorker(): void {

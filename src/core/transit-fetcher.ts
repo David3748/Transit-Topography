@@ -50,12 +50,19 @@ export class TransitFetcher {
             if (cached) {
                 try {
                     const cacheData = JSON.parse(cached);
-                    if (Date.now() - cacheData.timestamp < 24 * 60 * 60 * 1000) {
+                    // Validate cache: must have recent timestamp and well-formed data
+                    if (Date.now() - cacheData.timestamp < 24 * 60 * 60 * 1000 &&
+                        cacheData.data?.nodes?.length > 0 &&
+                        Array.isArray(cacheData.data.edges)) {
                         data = cacheData.data;
-                        console.log(`Loaded ${url} from cache`);
+                        console.log(`Loaded ${url} from cache (${data!.nodes.length} nodes)`);
+                    } else {
+                        console.warn(`Cache stale or invalid for ${url}, fetching fresh`);
+                        localStorage.removeItem(cacheKey);
                     }
                 } catch {
-                    console.warn('Cache parse error, fetching fresh data');
+                    console.warn('Cache parse error, removing corrupt entry');
+                    localStorage.removeItem(cacheKey);
                 }
             }
 
@@ -63,6 +70,11 @@ export class TransitFetcher {
                 const resp = await fetch(url);
                 if (!resp.ok) throw new Error(`Failed to load static graph: ${resp.statusText}`);
                 data = await resp.json();
+
+                // Validate fetched data before caching
+                if (!data?.nodes?.length) {
+                    console.warn(`Fetched data from ${url} has no nodes`);
+                }
 
                 try {
                     localStorage.setItem(cacheKey, JSON.stringify({
