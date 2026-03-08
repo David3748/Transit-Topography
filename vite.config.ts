@@ -20,7 +20,9 @@ function copyStaticAssets() {
 }
 
 export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/Transit-Topography/' : '/',
+  // GitHub Pages needs /Transit-Topography/ base; Netlify uses /.
+  // Set VITE_BASE_URL env var to override (GitHub Actions workflow sets it).
+  base: command === 'build' ? (process.env.VITE_BASE_URL || '/') : '/',
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
