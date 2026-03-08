@@ -160,7 +160,6 @@ class TransitTopographyApp {
     private prepareOrigin(lat: number, lng: number, labelText?: string): void {
         this.origin = [lat, lng];
         this.originMarker!.setLatLng(this.origin);
-        this.map!.setView(this.origin, this.map!.getZoom(), { animate: false });
 
         if (labelText) {
             document.getElementById('origin-label')!.innerText = labelText;
@@ -168,6 +167,8 @@ class TransitTopographyApp {
             this.updateOriginLabel({ lat, lon: lng });
         }
 
+        // Update all render data BEFORE setView so any triggered redraws
+        // use the correct origin and computed times.
         if (this.walkingNetwork.isLoaded && this.walkingNetwork.enabled) {
             this.walkingNetwork.computeFromOrigin(lat, lng);
             this.canvasLayer!.setWalkingNetwork(this.walkingNetwork);
@@ -187,12 +188,14 @@ class TransitTopographyApp {
         }
 
         this.canvasLayer!.setOrigin(this.origin);
+
+        // Set view after data is ready
+        this.map!.setView(this.origin, this.map!.getZoom(), { animate: false });
     }
 
     updateOrigin(lat: number, lng: number, labelText?: string): void {
         this.origin = [lat, lng];
         this.originMarker!.setLatLng(this.origin);
-        this.map!.panTo(this.origin);
 
         if (labelText) {
             document.getElementById('origin-label')!.innerText = labelText;
@@ -202,6 +205,8 @@ class TransitTopographyApp {
 
         updateUrl(this.currentCity, lat, lng, this.currentHour);
 
+        // Update all render data BEFORE panning so the moveend-triggered
+        // redraw already has the correct origin, walking times, and network times.
         if (this.walkingNetwork.isLoaded && this.walkingNetwork.enabled) {
             this.walkingNetwork.computeFromOrigin(lat, lng);
             this.canvasLayer!.setWalkingNetwork(this.walkingNetwork);
@@ -221,7 +226,10 @@ class TransitTopographyApp {
         }
 
         this.canvasLayer!.setOrigin(this.origin);
-        this.canvasLayer!.redraw();
+
+        // Pan after data is ready — the moveend event will trigger redraw
+        // with the correct origin and transit data already set.
+        this.map!.panTo(this.origin);
     }
 
     private async updateOriginLabel(latlng: { lat: number; lon: number }): Promise<void> {
@@ -777,14 +785,13 @@ class TransitTopographyApp {
                     await this.loadCity();
                 }
 
-                const targetZoom = Math.max(this.map!.getZoom(), 15);
-                this.map!.setView([lat, lon], targetZoom, { animate: true });
-
                 this.origin = [lat, lon];
                 this.originMarker!.setLatLng([lat, lon]);
                 document.getElementById('origin-label')!.innerText = name;
                 updateUrl(this.currentCity, lat, lon, this.currentHour);
 
+                // Update all render data BEFORE setView so the moveend-triggered
+                // redraw uses the correct origin and computed times.
                 if (this.walkingNetwork.isLoaded && this.walkingNetwork.enabled) {
                     this.walkingNetwork.computeFromOrigin(lat, lon);
                     this.canvasLayer!.setWalkingNetwork(this.walkingNetwork);
@@ -803,7 +810,10 @@ class TransitTopographyApp {
                 }
 
                 this.canvasLayer!.setOrigin([lat, lon]);
-                this.canvasLayer!.redraw();
+
+                // Set view after data is ready
+                const targetZoom = Math.max(this.map!.getZoom(), 15);
+                this.map!.setView([lat, lon], targetZoom, { animate: true });
             });
 
             list.appendChild(li);
