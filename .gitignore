@@ -1,2 +1,13 @@
 config.js
 .DS_Store
+
+# Build output
+dist/
+node_modules/
+
+# Env files
+.env
+.env.local
+
+# Lock files
+package-lock.json

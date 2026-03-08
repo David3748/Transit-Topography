@@ -6,184 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Transit Topography</title>
 
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-
-    <style>
-        /* CSS Variables for theming */
-        :root {
-            --bg-primary: #f9fafb;
-            --bg-panel: rgba(255, 255, 255, 0.9);
-            --text-primary: #111827;
-            --text-secondary: #6b7280;
-            --text-muted: #9ca3af;
-            --accent: #2563eb;
-            --accent-hover: #1d4ed8;
-            --border: rgba(0, 0, 0, 0.05);
-        }
-
-        [data-theme="dark"] {
-            --bg-primary: #0f172a;
-            --bg-panel: rgba(30, 41, 59, 0.95);
-            --text-primary: #f1f5f9;
-            --text-secondary: #94a3b8;
-            --text-muted: #64748b;
-            --accent: #3b82f6;
-            --accent-hover: #60a5fa;
-            --border: rgba(255, 255, 255, 0.1);
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            transition: background-color 0.3s, color 0.3s;
-        }
-
-        #map {
-            height: 100vh;
-            width: 100vw;
-            z-index: 0;
-        }
-
-        .glass-panel {
-            background: var(--bg-panel);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border);
-            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.15);
-            transition: background 0.3s, border-color 0.3s;
-        }
-
-        [data-theme="dark"] .glass-panel {
-            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
-        }
-
-        /* Dark mode text overrides */
-        [data-theme="dark"] .text-gray-900 { color: var(--text-primary); }
-        [data-theme="dark"] .text-gray-800 { color: var(--text-primary); }
-        [data-theme="dark"] .text-gray-700 { color: var(--text-secondary); }
-        [data-theme="dark"] .text-gray-500 { color: var(--text-muted); }
-        [data-theme="dark"] .text-gray-400 { color: var(--text-muted); }
-        [data-theme="dark"] .bg-white { background-color: #1e293b; }
-        [data-theme="dark"] .border-gray-200 { border-color: #334155; }
-        [data-theme="dark"] .border-gray-300 { border-color: #475569; }
-        [data-theme="dark"] .hover\:bg-blue-50:hover { background-color: #1e3a5f; }
-        [data-theme="dark"] .hover\:bg-gray-100:hover { background-color: #334155; }
-
-        /* Progress bar animation */
-        @keyframes progress-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
-
-        .progress-pulse {
-            animation: progress-pulse 1.5s ease-in-out infinite;
-        }
-
-        /* Keyboard shortcut styling */
-        .kbd {
-            display: inline-block;
-            padding: 2px 6px;
-            font-family: monospace;
-            font-size: 11px;
-            background: #e5e7eb;
-            border: 1px solid #d1d5db;
-            border-radius: 4px;
-            box-shadow: 0 1px 0 #9ca3af;
-        }
-
-        [data-theme="dark"] .kbd {
-            background: #374151;
-            border-color: #4b5563;
-            box-shadow: 0 1px 0 #1f2937;
-        }
-
-        /* Station markers */
-        .station-marker {
-            border-radius: 50%;
-            border: 1px solid white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-
-        /* City selector modal */
-        .city-modal {
-            max-height: 70vh;
-            overflow-y: auto;
-        }
-        
-        .city-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 6px 12px;
-            border-radius: 9999px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.15s;
-            border: 1px solid var(--border);
-            background: var(--bg-panel);
-        }
-        
-        .city-chip:hover {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-            transform: translateY(-1px);
-        }
-        
-        .city-chip.active {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-        }
-        
-        .region-section {
-            margin-bottom: 16px;
-        }
-        
-        .region-title {
-            font-size: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-            padding-left: 4px;
-        }
-        
-        .city-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-        }
-        
-        .city-chip.hidden {
-            display: none;
-        }
-        
-        #city-title-btn {
-            cursor: pointer;
-            transition: color 0.2s;
-        }
-        
-        #city-title-btn:hover {
-            color: var(--accent-hover);
-        }
-    </style>
-
-    <!-- Load Config & Engine -->
-    <script src="config.js"></script>
-    <script src="transit_engine.js"></script>
 </head>
 
 <body class="bg-gray-50 text-gray-900 overflow-hidden">
@@ -259,6 +83,20 @@
                 <span>20</span>
                 <span>25</span>
                 <span>30m</span>
+            </div>
+        </div>
+
+        <!-- Departure Time -->
+        <div class="mb-4">
+            <div class="flex justify-between items-center text-xs font-medium text-gray-700 mb-1">
+                <span>Departure Time</span>
+                <span id="time-display" class="font-mono text-blue-600">8:00 AM</span>
+            </div>
+            <input type="range" id="time-slider" min="0" max="47" step="1" value="16"
+                class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+            <div class="flex items-center gap-1.5 mt-1">
+                <span id="service-dot" class="w-2 h-2 rounded-full flex-shrink-0" style="background-color: #22c55e;"></span>
+                <span id="service-label" class="text-[10px] text-gray-500">AM Rush Hour · ~3 min frequency</span>
             </div>
         </div>
 
@@ -454,6 +292,10 @@
                     <span><span class="kbd">+</span> <span class="kbd">-</span></span>
                 </div>
                 <div class="flex justify-between">
+                    <span>Step time back / forward 30 min</span>
+                    <span><span class="kbd">[</span> <span class="kbd">]</span></span>
+                </div>
+                <div class="flex justify-between">
                     <span>Show this help</span>
                     <span class="kbd">?</span>
                 </div>
@@ -462,257 +304,7 @@
         </div>
     </div>
 
-    <script type="module" src="js/app.js"></script>
-
-    <!-- Fallback for non-module browsers -->
-    <script nomodule>
-        // Fallback inline script for browsers that don't support modules
-        console.warn('ES Modules not supported, loading fallback...');
-        
-        // Load the original inline implementation as fallback
-        document.addEventListener('DOMContentLoaded', function() {
-            // Configuration
-            const WALK_SPEED_MPS = 1.3;
-            const TRANSFER_PENALTY_SEC = 300;
-            let origin = [40.7527, -73.9772];
-        let opacity = 0.6;
-            let pixelSize = 4;
-            
-            const transitGraph = new TransitGraph();
-            const transitFetcher = new TransitFetcher(transitGraph);
-            const waterMask = new WaterMask();
-            let networkTimes = new Map();
-            let map, canvasLayer, originMarker;
-            
-            // City configs
-            const CITIES = {
-                'nyc': { center: [40.7527, -73.9772], zoom: 13, files: ['transit_data/nyc.json'], busFiles: ['transit_data/nyc_bus_manhattan_bus.json', 'transit_data/nyc_bus_brooklyn_bus.json'], water: 'transit_data/water_nyc.json' },
-                'sf': { center: [37.7749, -122.4194], zoom: 12, files: ['transit_data/sf.json', 'transit_data/sf_muni.json'], busFiles: ['transit_data/sf_bus.json', 'transit_data/sf_muni_bus.json'], water: 'transit_data/water_sf.json' },
-                'boston': { center: [42.3601, -71.0589], zoom: 13, files: ['transit_data/boston.json'], busFiles: ['transit_data/boston_bus.json'], water: 'transit_data/water_boston.json' },
-                'chicago': { center: [41.8781, -87.6298], zoom: 12, files: ['transit_data/chicago.json'], busFiles: ['transit_data/chicago_bus.json'], water: 'transit_data/water_chicago.json' },
-                'dc': { center: [38.9072, -77.0369], zoom: 12, files: ['transit_data/dc.json'], busFiles: ['transit_data/dc_bus.json'], water: 'transit_data/water_dc.json' },
-                'la': { center: [34.0522, -118.2437], zoom: 11, files: ['transit_data/la.json'], busFiles: ['transit_data/la_bus.json'], water: 'transit_data/water_la.json' },
-                'seattle': { center: [47.6062, -122.3321], zoom: 11, files: ['transit_data/seattle.json'], busFiles: ['transit_data/seattle_bus.json'], water: 'transit_data/water_seattle.json' },
-                'portland': { center: [45.5152, -122.6784], zoom: 12, files: ['transit_data/portland.json'], busFiles: ['transit_data/portland_bus.json'], water: 'transit_data/water_portland.json' },
-                'toronto': { center: [43.6532, -79.3832], zoom: 12, files: ['transit_data/toronto.json'], busFiles: ['transit_data/toronto_bus.json'], water: 'transit_data/water_toronto.json' },
-                'copenhagen': { center: [55.6761, 12.5683], zoom: 12, files: ['transit_data/copenhagen.json'], busFiles: ['transit_data/copenhagen_bus.json'], water: 'transit_data/water_copenhagen.json' },
-                'london': { center: [51.5074, -0.1278], zoom: 11, files: ['transit_data/london.json'], busFiles: [], water: 'transit_data/water_london.json' },
-                'paris': { center: [48.8566, 2.3522], zoom: 12, files: ['transit_data/paris.json'], busFiles: ['transit_data/paris_bus.json'], water: 'transit_data/water_paris.json' },
-                'berlin': { center: [52.5200, 13.4050], zoom: 11, files: ['transit_data/berlin.json'], busFiles: ['transit_data/berlin_bus.json'], water: 'transit_data/water_berlin.json' },
-                'amsterdam': { center: [52.3676, 4.9041], zoom: 12, files: ['transit_data/amsterdam.json'], busFiles: ['transit_data/amsterdam_bus.json'], water: 'transit_data/water_amsterdam.json' },
-                'other': { center: null, zoom: null, files: [], busFiles: [], water: null }
-            };
-            
-            function distHaversine(lat1, lon1, lat2, lon2) {
-                const R = 6371000;
-                const dLat = (lat2 - lat1) * Math.PI / 180;
-                const dLon = (lon2 - lon1) * Math.PI / 180;
-                const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            }
-            
-            function getColor(minutes) {
-                if (minutes >= 30) return [0, 0, 0, 0];
-                const alpha = Math.floor(opacity * 255);
-                if (minutes < 5) return [59, 130, 246, alpha];
-                if (minutes < 10) return [6, 182, 212, alpha];
-                if (minutes < 15) return [16, 185, 129, alpha];
-                if (minutes < 20) return [132, 204, 22, alpha];
-                if (minutes < 25) return [250, 204, 21, alpha];
-                return [249, 115, 22, alpha];
-            }
-            
-            function initMap() {
-                map = L.map('map', { zoomControl: false, attributionControl: false }).setView(origin, 13);
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }).addTo(map);
-            L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-            const markerIcon = L.divIcon({
-                className: 'custom-div-icon',
-                html: "<div style='background-color: #2563eb; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);'></div>",
-                    iconSize: [16, 16], iconAnchor: [8, 8]
-                });
-                originMarker = L.marker(origin, { icon: markerIcon }).addTo(map);
-                
-                map.on('click', e => {
-                    if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
-                        updateOrigin(e.latlng.lat, e.latlng.lng);
-                    }
-                });
-                initCanvasLayer();
-                initDataFetching();
-            }
-            
-            function updateOrigin(lat, lng, label) {
-                origin = [lat, lng];
-                originMarker.setLatLng(origin);
-                map.panTo(origin);
-                document.getElementById('origin-label').innerText = label || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-                
-                if (transitGraph.nodes.size > 0) {
-                    const entryNodes = [];
-                    for (const [id, node] of transitGraph.nodes) {
-                        const dist = transitGraph.distHaversine(lat, lng, node.lat, node.lon);
-                        if (dist < 2000) entryNodes.push({ id, initialWalkTime: dist / WALK_SPEED_MPS });
-                    }
-                    networkTimes = transitGraph.calculateNetworkTimes(entryNodes, TRANSFER_PENALTY_SEC);
-                }
-                if (canvasLayer) canvasLayer.redraw();
-            }
-
-            function initCanvasLayer() {
-                L.CanvasLayer = L.Layer.extend({
-                    onAdd: function(m) {
-                        this._map = m;
-                        this._canvas = L.DomUtil.create('canvas', 'leaflet-zoom-animated');
-                        this._canvas.style.pointerEvents = 'none';
-                        this._canvas.style.zIndex = 100;
-                        this._canvas.style.willChange = 'transform';
-                        m.getPanes().overlayPane.appendChild(this._canvas);
-                        this._lastBounds = null;
-                        m.on('move', this._onMove, this);
-                        m.on('moveend zoomend', this._reset, this);
-                        m.on('zoomanim', this._onZoomAnim, this);
-                        this._reset();
-                    },
-                    onRemove: function(m) {
-                        m.getPanes().overlayPane.removeChild(this._canvas);
-                        m.off('move', this._onMove, this);
-                        m.off('moveend zoomend', this._reset, this);
-                        m.off('zoomanim', this._onZoomAnim, this);
-                    },
-                    _onMove: function() {
-                        if (this._lastBounds) {
-                            const topLeft = this._map.latLngToLayerPoint(this._lastBounds.getNorthWest());
-                            L.DomUtil.setPosition(this._canvas, topLeft);
-                        }
-                    },
-                    _onZoomAnim: function(e) {
-                        if (this._lastBounds) {
-                            const scale = this._map.getZoomScale(e.zoom);
-                            const offset = this._map._latLngBoundsToNewLayerBounds(this._lastBounds, e.zoom, e.center).min;
-                            L.DomUtil.setTransform(this._canvas, offset, scale);
-                        }
-                    },
-                    _reset: function() {
-                    const bounds = this._map.getBounds();
-                    const topLeft = this._map.latLngToLayerPoint(bounds.getNorthWest());
-                    const size = this._map.getSize();
-                        this._canvas.style.transform = '';
-                    this._canvas.width = size.x;
-                    this._canvas.height = size.y;
-                    L.DomUtil.setPosition(this._canvas, topLeft);
-                        this._lastBounds = bounds;
-                    this.redraw();
-                },
-                    redraw: function() {
-                    const ctx = this._canvas.getContext('2d');
-                        const { width, height } = this._canvas;
-                    ctx.clearRect(0, 0, width, height);
-
-                    waterMask.updateCanvas(this._map);
-                        const waterData = waterMask.ctx.getImageData(0, 0, width, height).data;
-                        const isWater = (x, y) => waterData && x >= 0 && x < width && y >= 0 && y < height && waterData[4 * (Math.floor(y) * width + Math.floor(x)) + 3] > 100;
-                        
-                    const bounds = this._map.getBounds();
-                        const north = bounds.getNorth(), west = bounds.getWest();
-                        const latRange = bounds.getSouth() - north, lngRange = bounds.getEast() - west;
-                    const imgData = ctx.createImageData(width, height);
-                    const data = imgData.data;
-
-                    const activeStations = [];
-                        for (const [id, time] of networkTimes) {
-                            const node = transitGraph.nodes.get(id);
-                            if (node && node.lat < north + 0.1 && node.lat > bounds.getSouth() - 0.1 && node.lon > west - 0.1 && node.lon < bounds.getEast() + 0.1) {
-                                activeStations.push({ lat: node.lat, lon: node.lon, time });
-                        }
-                    }
-
-                    for (let y = 0; y < height; y += pixelSize) {
-                        const lat = north + ((y + pixelSize / 2) / height) * latRange;
-                        for (let x = 0; x < width; x += pixelSize) {
-                            const lng = west + ((x + pixelSize / 2) / width) * lngRange;
-
-                                const distDirect = distHaversine(origin[0], origin[1], lat, lng);
-                                let minTime = distDirect / WALK_SPEED_MPS;
-                                
-                                for (const s of activeStations) {
-                                if (Math.abs(s.lat - lat) + Math.abs(s.lon - lng) < 0.05) {
-                                        const total = s.time + distHaversine(lat, lng, s.lat, s.lon) / WALK_SPEED_MPS;
-                                        if (total < minTime) minTime = total;
-                                    }
-                                }
-                                
-                                const color = getColor(minTime / 60);
-                            for (let py = 0; py < pixelSize; py++) {
-                                for (let px = 0; px < pixelSize; px++) {
-                                    if (y + py < height && x + px < width) {
-                                        const idx = 4 * ((y + py) * width + (x + px));
-                                            data[idx] = color[0]; data[idx + 1] = color[1]; data[idx + 2] = color[2]; data[idx + 3] = color[3];
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        ctx.putImageData(imgData, 0, 0);
-                    }
-                });
-            canvasLayer = new L.CanvasLayer();
-            map.addLayer(canvasLayer);
-        }
-
-            function initDataFetching() {
-                const btn = document.getElementById('fetch-stations-btn');
-                const citySelect = document.getElementById('city-select');
-                const busToggle = document.getElementById('bus-toggle');
-                const loading = document.getElementById('loading-overlay');
-                const countLabel = document.getElementById('station-count');
-                
-                citySelect.addEventListener('change', e => {
-                    const city = CITIES[e.target.value];
-                    if (city && city.center) {
-                        origin = city.center;
-                        map.setView(origin, city.zoom);
-                        updateOrigin(origin[0], origin[1], "City Center");
-                        btn.click();
-                    }
-                });
-                
-                btn.addEventListener('click', async () => {
-                    const cityKey = citySelect.value;
-                    const city = CITIES[cityKey];
-                    try {
-                        loading.classList.remove('hidden');
-                        transitGraph.clear();
-                        
-                        for (const file of city.files || []) {
-                            try { await transitFetcher.loadStaticGraph(file, false); } catch (e) { console.warn(e); }
-                        }
-                        if (busToggle.checked) {
-                            for (const file of city.busFiles || []) {
-                                try { await transitFetcher.loadStaticGraph(file, false); } catch (e) { console.warn(e); }
-                            }
-                        }
-                        if (city.water) await waterMask.loadWaterData(city.water);
-                        
-                        transitGraph.generateTransferEdges(200);
-                        countLabel.innerText = `Loaded ${transitGraph.stations.length} stations`;
-                        countLabel.classList.remove('hidden');
-                        updateOrigin(origin[0], origin[1]);
-                    } catch (err) {
-                        alert('Failed to load: ' + err.message);
-                    } finally {
-                        loading.classList.add('hidden');
-                    }
-                });
-            }
-            
-            document.getElementById('opacity-slider').addEventListener('input', e => { opacity = parseFloat(e.target.value); if (canvasLayer) canvasLayer.redraw(); });
-            document.getElementById('res-select').addEventListener('change', e => { pixelSize = parseInt(e.target.value); if (canvasLayer) canvasLayer.redraw(); });
-            
-            initMap();
-        });
-    </script>
+    <script type="module" src="/src/main.ts"></script>
 
 </body>
 
