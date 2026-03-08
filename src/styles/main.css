@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Variables for theming */
+:root {
+    --bg-primary: #f9fafb;
+    --bg-panel: rgba(255, 255, 255, 0.9);
+    --text-primary: #111827;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --border: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] {
+    --bg-primary: #0f172a;
+    --bg-panel: rgba(30, 41, 59, 0.95);
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent: #3b82f6;
+    --accent-hover: #60a5fa;
+    --border: rgba(255, 255, 255, 0.1);
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+#map {
+    height: 100vh;
+    width: 100vw;
+    z-index: 0;
+}
+
+.glass-panel {
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.15);
+    transition: background 0.3s, border-color 0.3s;
+}
+
+[data-theme="dark"] .glass-panel {
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+}
+
+/* Dark mode text overrides */
+[data-theme="dark"] .text-gray-900 { color: var(--text-primary); }
+[data-theme="dark"] .text-gray-800 { color: var(--text-primary); }
+[data-theme="dark"] .text-gray-700 { color: var(--text-secondary); }
+[data-theme="dark"] .text-gray-500 { color: var(--text-muted); }
+[data-theme="dark"] .text-gray-400 { color: var(--text-muted); }
+[data-theme="dark"] .bg-white { background-color: #1e293b; }
+[data-theme="dark"] .border-gray-200 { border-color: #334155; }
+[data-theme="dark"] .border-gray-300 { border-color: #475569; }
+[data-theme="dark"] .hover\:bg-blue-50:hover { background-color: #1e3a5f; }
+[data-theme="dark"] .hover\:bg-gray-100:hover { background-color: #334155; }
+
+/* Progress bar animation */
+@keyframes progress-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.progress-pulse {
+    animation: progress-pulse 1.5s ease-in-out infinite;
+}
+
+/* Keyboard shortcut styling */
+.kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    font-family: monospace;
+    font-size: 11px;
+    background: #e5e7eb;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    box-shadow: 0 1px 0 #9ca3af;
+}
+
+[data-theme="dark"] .kbd {
+    background: #374151;
+    border-color: #4b5563;
+    box-shadow: 0 1px 0 #1f2937;
+}
+
+/* Station markers */
+.station-marker {
+    border-radius: 50%;
+    border: 1px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* City selector modal */
+.city-modal {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.city-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+}
+
+.city-chip:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    transform: translateY(-1px);
+}
+
+.city-chip.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.region-section {
+    margin-bottom: 16px;
+}
+
+.region-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    padding-left: 4px;
+}
+
+.city-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.city-chip.hidden {
+    display: none;
+}
+
+#city-title-btn {
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+#city-title-btn:hover {
+    color: var(--accent-hover);
+}
