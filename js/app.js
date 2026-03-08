@@ -4,6 +4,8 @@
 
 import { debounce, normalizeQuery, getUrlParams, updateUrl } from './utils.js';
 import { IsochoneCanvasLayer } from './canvas-layer.js';
+import { ExportManager } from './managers/ExportManager.js';
+import { SettingsManager } from './managers/SettingsManager.js';
 
 // Cities with walking network data available
 const WALKING_NETWORK_CITIES = [
@@ -235,7 +237,11 @@ class TransitTopographyApp {
         this.tileLayer = null;
         this.stationLayer = null;
         this.linesLayer = null;
-        
+
+        // Initialize managers
+        this.exportManager = new ExportManager(this);
+        this.settingsManager = new SettingsManager(this);
+
         // Bind methods
         this.updateOrigin = this.updateOrigin.bind(this);
         this.loadCity = this.loadCity.bind(this);
@@ -503,7 +509,7 @@ class TransitTopographyApp {
         this.updateWalkingNetworkUI();
 
         // Export button
-        document.getElementById('export-btn').addEventListener('click', this.exportImage);
+        document.getElementById('export-btn').addEventListener('click', () => this.exportManager.exportToPNG());
 
         // Help modal
         const helpBtn = document.getElementById('help-btn');

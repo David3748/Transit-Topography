@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build output
+dist/
+build/
+
+# Data files (large JSON files)
+transit_data/*.json
+
+# Generated files
+config.js
+
+# Cache
+.cache/
+*.log

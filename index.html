@@ -8,19 +8,192 @@
 
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+
+    <!-- Enhancement Styles (Mobile & Accessibility) -->
+    <link rel="stylesheet" href="css/enhancements.css">
+
+    <style>
+        /* CSS Variables for theming */
+        :root {
+            --bg-primary: #f9fafb;
+            --bg-panel: rgba(255, 255, 255, 0.9);
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+            --text-muted: #9ca3af;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --border: rgba(0, 0, 0, 0.05);
+        }
+
+        [data-theme="dark"] {
+            --bg-primary: #0f172a;
+            --bg-panel: rgba(30, 41, 59, 0.95);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #3b82f6;
+            --accent-hover: #60a5fa;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100vw;
+            z-index: 0;
+        }
+
+        .glass-panel {
+            background: var(--bg-panel);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.15);
+            transition: background 0.3s, border-color 0.3s;
+        }
+
+        [data-theme="dark"] .glass-panel {
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Dark mode text overrides */
+        [data-theme="dark"] .text-gray-900 { color: var(--text-primary); }
+        [data-theme="dark"] .text-gray-800 { color: var(--text-primary); }
+        [data-theme="dark"] .text-gray-700 { color: var(--text-secondary); }
+        [data-theme="dark"] .text-gray-500 { color: var(--text-muted); }
+        [data-theme="dark"] .text-gray-400 { color: var(--text-muted); }
+        [data-theme="dark"] .bg-white { background-color: #1e293b; }
+        [data-theme="dark"] .border-gray-200 { border-color: #334155; }
+        [data-theme="dark"] .border-gray-300 { border-color: #475569; }
+        [data-theme="dark"] .hover\:bg-blue-50:hover { background-color: #1e3a5f; }
+        [data-theme="dark"] .hover\:bg-gray-100:hover { background-color: #334155; }
+
+        /* Progress bar animation */
+        @keyframes progress-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .progress-pulse {
+            animation: progress-pulse 1.5s ease-in-out infinite;
+        }
+
+        /* Keyboard shortcut styling */
+        .kbd {
+            display: inline-block;
+            padding: 2px 6px;
+            font-family: monospace;
+            font-size: 11px;
+            background: #e5e7eb;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            box-shadow: 0 1px 0 #9ca3af;
+        }
+
+        [data-theme="dark"] .kbd {
+            background: #374151;
+            border-color: #4b5563;
+            box-shadow: 0 1px 0 #1f2937;
+        }
+
+        /* Station markers */
+        .station-marker {
+            border-radius: 50%;
+            border: 1px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        /* City selector modal */
+        .city-modal {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        
+        .city-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 12px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            border: 1px solid var(--border);
+            background: var(--bg-panel);
+        }
+        
+        .city-chip:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+            transform: translateY(-1px);
+        }
+        
+        .city-chip.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        
+        .region-section {
+            margin-bottom: 16px;
+        }
+        
+        .region-title {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            padding-left: 4px;
+        }
+        
+        .city-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        
+        .city-chip.hidden {
+            display: none;
+        }
+        
+        #city-title-btn {
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        
+        #city-title-btn:hover {
+            color: var(--accent-hover);
+        }
+    </style>
+
+    <!-- Load Config & Engine -->
+    <script src="config.js"></script>
+    <script src="transit_engine.js"></script>
+    <script type="module" src="js/error-handler.js"></script>
 </head>
 
 <body class="bg-gray-50 text-gray-900 overflow-hidden">
+    <!-- Skip to main content link for screen readers -->
+    <a href="#map" class="skip-link">Skip to map</a>
 
     <!-- Map Container -->
-    <div id="map"></div>
+    <div id="map" role="application" aria-label="Interactive transit map"></div>
 
     <!-- UI Overlay -->
-    <div class="absolute top-4 left-4 z-[1000] glass-panel p-6 rounded-2xl max-w-sm transition-all duration-300">
+    <div class="absolute top-4 left-4 z-[1000] glass-panel p-6 rounded-2xl max-w-sm transition-all duration-300 control-panel-mobile" role="region" aria-label="Transit isochrone controls">
         <h1 class="text-2xl font-extrabold mb-1 tracking-tight text-gray-900">
-            <button id="city-title-btn" class="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1" title="Click to change city">
-                <span id="city-title">New York City</span>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <button id="city-title-btn" class="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1" title="Click to change city" aria-label="Change city, currently New York City" aria-haspopup="dialog">
+                <span id="city-title" aria-live="polite">New York City</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>
             </button>
@@ -42,7 +215,10 @@
             <div id="search-container" class="relative hidden">
                 <input id="origin-input" type="text"
                     class="w-full text-lg font-bold text-gray-900 bg-white border border-blue-500 rounded-t px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                    placeholder="Type an address..." autocomplete="off" />
+                    placeholder="Type an address..." autocomplete="off"
+                    aria-label="Search for address or location"
+                    aria-autocomplete="list"
+                    aria-controls="suggestions-list" />
                 <!-- Suggestions Dropdown -->
                 <ul id="suggestions-list"
                     class="hidden absolute left-0 right-0 bg-white border-x border-b border-blue-500 rounded-b shadow-lg max-h-60 overflow-y-auto z-[2000]">
@@ -56,7 +232,8 @@
             <div class="flex justify-between items-center text-xs mb-2 text-gray-500">
                 <span>Travel Time Zones</span>
                 <select id="max-time-select"
-                    class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    aria-label="Maximum travel time">
                     <option value="15">15 min</option>
                     <option value="30" selected>30 min</option>
                     <option value="45">45 min</option>
@@ -102,14 +279,19 @@
 
         <div class="space-y-3">
             <div class="flex items-center justify-between">
-                <label class="text-xs font-medium text-gray-700">Opacity</label>
+                <label for="opacity-slider" class="text-xs font-medium text-gray-700">Opacity</label>
                 <input type="range" id="opacity-slider" min="0.1" max="0.9" step="0.1" value="0.6"
-                    class="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                    class="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    aria-label="Isochrone opacity"
+                    aria-valuemin="0.1"
+                    aria-valuemax="0.9"
+                    aria-valuenow="0.6">
             </div>
             <div class="flex items-center justify-between">
-                <label class="text-xs font-medium text-gray-700">Resolution (Speed vs Quality)</label>
+                <label for="res-select" class="text-xs font-medium text-gray-700">Resolution (Speed vs Quality)</label>
                 <select id="res-select"
-                    class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    aria-label="Rendering quality">
                     <option value="6">Low (Fast)</option>
                     <option value="3">Medium</option>
                     <option value="2" selected>High</option>
@@ -192,11 +374,12 @@
     </div>
 
     <!-- Bottom Left Buttons -->
-    <div class="fixed bottom-4 left-4 z-[1000] flex gap-2">
+    <div class="fixed bottom-4 left-4 z-[1000] flex gap-2 bottom-buttons-mobile" role="toolbar" aria-label="Map actions">
         <!-- Share Button -->
-        <button id="share-btn" 
+        <button id="share-btn"
             class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
-            title="Copy shareable link">
+            title="Copy shareable link"
+            aria-label="Share current view">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
             </svg>
@@ -204,9 +387,11 @@
         </button>
 
         <!-- Export Button -->
-        <button id="export-btn" 
+        <button id="export-btn"
             class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
-            title="Export as PNG (E)">
+            title="Export as PNG (E)"
+            aria-label="Export map as PNG image"
+            aria-keyshortcuts="E">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
@@ -214,9 +399,12 @@
         </button>
 
         <!-- Dark Mode Toggle -->
-        <button id="theme-btn" 
+        <button id="theme-btn"
             class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
-            title="Toggle dark mode (D)">
+            title="Toggle dark mode (D)"
+            aria-label="Toggle dark mode"
+            aria-keyshortcuts="D"
+            aria-pressed="false">
             <svg id="theme-icon-light" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
             </svg>
@@ -226,15 +414,18 @@
         </button>
 
         <!-- Help Button -->
-        <button id="help-btn" 
+        <button id="help-btn"
             class="glass-panel px-3 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors"
-            title="Keyboard shortcuts (?)">
+            title="Keyboard shortcuts (?)"
+            aria-label="Show keyboard shortcuts and help"
+            aria-keyshortcuts="?"
+            aria-haspopup="dialog">
             <span class="kbd">?</span>
         </button>
     </div>
 
     <!-- City Selector Modal -->
-    <div id="city-modal" class="fixed inset-0 bg-black/50 z-[3000] hidden flex items-center justify-center">
+    <div id="city-modal" class="fixed inset-0 bg-black/50 z-[3000] hidden flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="city-modal-title">
         <div class="glass-panel rounded-2xl p-6 max-w-lg mx-4 shadow-2xl city-modal">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-lg font-bold text-gray-900">Select City</h2>
