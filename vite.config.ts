@@ -15,6 +15,13 @@ function copyStaticAssets() {
       if (existsSync(transitSrc)) {
         cpSync(transitSrc, transitDest, { recursive: true });
       }
+
+      const serviceWorkerSrc = resolve(__dirname, 'sw.js');
+      const serviceWorkerDest = resolve(__dirname, outDir, 'sw.js');
+      if (existsSync(serviceWorkerSrc)) {
+        mkdirSync(resolve(__dirname, outDir), { recursive: true });
+        copyFileSync(serviceWorkerSrc, serviceWorkerDest);
+      }
     },
   };
 }

@@ -15,8 +15,11 @@ import { TransitFetcher } from './core/transit-fetcher';
 import { WaterMask } from './masks/water-mask';
 import { BuildingMask } from './masks/building-mask';
 import { WalkingNetwork } from './core/walking-network';
-import { CITIES, WALKING_NETWORK_CITIES, WALK_SPEED_MPS, TILE_URLS } from './data/city-config';
+import { CITIES, TRANSFER_PENALTY_SEC, WALK_SPEED_MPS, TILE_URLS } from './data/city-config';
+import { CITY_MANIFEST, getCityManifest } from './data/city-manifest';
 import { getTransitPeriod, getBoardingWaitSec, formatHour } from './utils/headway';
+import { PosterTab } from './poster/poster-tab';
+import type { RoutingProfile } from './types';
 
 const LOCATIONIQ_API_KEY = import.meta.env.VITE_LOCATIONIQ_KEY || (window as any).LOCATIONIQ_API_KEY || '';
 
@@ -35,17 +38,21 @@ class TransitTopographyApp {
 
     // UI state
     private opacity: number = 0.6;
-    private pixelSize: number = 2;
+    private pixelSize: number = 3;
     private maxTime: number = 30;
     private isDarkMode: boolean = false;
     private showStations: boolean = false;
     private showLines: boolean = false;
     private currentHour: number = 8; // 8 AM default
+    private routingDirection: RoutingProfile['direction'] = 'depart';
 
     // Layers
     private tileLayer: L.TileLayer | null = null;
     private stationLayer: L.LayerGroup = L.layerGroup();
     private linesLayer: L.LayerGroup = L.layerGroup();
+
+    // Poster tab
+    private posterTab: PosterTab;
 
     constructor() {
         this.transitGraph = new TransitGraph();
@@ -53,6 +60,7 @@ class TransitTopographyApp {
         this.waterMask = new WaterMask();
         this.buildingMask = new BuildingMask();
         this.walkingNetwork = new WalkingNetwork();
+        this.posterTab = new PosterTab();
 
         this.updateOrigin = this.updateOrigin.bind(this);
         this.loadCity = this.loadCity.bind(this);
@@ -79,6 +87,9 @@ class TransitTopographyApp {
         if (params.hour !== null) {
             this.currentHour = Math.max(0, Math.min(23.5, params.hour));
         }
+        if (params.direction) {
+            this.routingDirection = params.direction;
+        }
 
         this.initMap();
 
@@ -100,13 +111,34 @@ class TransitTopographyApp {
         this.initAddressSearch();
         this.initDataFetching();
 
+        // Initialize poster tab
+        this.posterTab.transitGraph = this.transitGraph;
+        this.posterTab.waterMask = this.waterMask;
+        this.posterTab.walkingNetwork = this.walkingNetwork;
+        this.posterTab.currentCityKey = this.currentCity;
+        this.posterTab.onCityChangeRequested = async (cityKey: string) => {
+            this.currentCity = cityKey;
+            document.getElementById('city-title')!.textContent = CITIES[cityKey]?.name || cityKey;
+            this.updateModeAvailability();
+            await this.loadCity();
+        };
+        this.posterTab.onOpenCityModal = () => {
+            document.getElementById('city-modal')!.classList.remove('hidden');
+            (document.getElementById('city-search') as HTMLInputElement).value = '';
+            (document.getElementById('city-search') as HTMLInputElement).focus();
+            this.filterCities('');
+        };
+        this.posterTab.syncCity(this.currentCity);
+        this.posterTab.init();
+
         document.getElementById('city-select')!.setAttribute('value', this.currentCity);
         const currentCityData = CITIES[this.currentCity];
         if (currentCityData) {
             document.getElementById('city-title')!.textContent = currentCityData.name;
         }
+        this.updateModeAvailability();
 
-        if (params.city && CITIES[params.city] && CITIES[params.city].files.length > 0) {
+        if (CITIES[this.currentCity]?.files.length > 0) {
             setTimeout(() => this.loadCity(), 500);
         }
     }
@@ -132,29 +164,247 @@ class TransitTopographyApp {
 
         const markerIcon = L.divIcon({
             className: 'custom-div-icon',
-            html: "<div style='background-color: #2563eb; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);'></div>",
-            iconSize: [16, 16],
-            iconAnchor: [8, 8]
+            html: '<div class="origin-pulse"><div class="origin-pulse-ring"></div><div class="origin-pulse-core"></div></div>',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
         });
 
-        this.originMarker = L.marker(this.origin, { icon: markerIcon }).addTo(this.map);
+        this.originMarker = L.marker(this.origin, { icon: markerIcon, keyboard: false }).addTo(this.map);
 
         this.map.on('click', (e) => {
             if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
                 this.updateOrigin(e.latlng.lat, e.latlng.lng);
+            } else if (this.routeLayer) {
+                this.clearRouteLayer();
             }
         });
 
         this.map.on('contextmenu', (e) => {
             e.originalEvent.preventDefault();
-            const travelTime = this.canvasLayer?.getTravelTime(e.latlng.lat, e.latlng.lng);
-            if (travelTime !== null && travelTime !== undefined) {
-                L.popup()
-                    .setLatLng(e.latlng)
-                    .setContent(`<strong>Travel Time:</strong> ${travelTime.toFixed(1)} minutes`)
-                    .openOn(this.map!);
+            this.showRouteAt(e.latlng.lat, e.latlng.lng);
+        });
+
+        this.initHoverInspector();
+    }
+
+    // ── Hover travel-time inspector ──────────────────────────────────────
+    private hoverTooltip: HTMLDivElement | null = null;
+    private hoverRaf: number | null = null;
+
+    private initHoverInspector(): void {
+        const tooltip = document.createElement('div');
+        tooltip.className = 'tt-tooltip';
+        tooltip.innerHTML = `
+            <div>
+                <div class="tt-time">—</div>
+                <div class="tt-mode">travel time</div>
+            </div>`;
+        document.body.appendChild(tooltip);
+        this.hoverTooltip = tooltip;
+
+        const mapEl = document.getElementById('map')!;
+
+        let lastLat = 0;
+        let lastLng = 0;
+        let pendingX = 0;
+        let pendingY = 0;
+        let visible = false;
+
+        const update = () => {
+            this.hoverRaf = null;
+            if (!this.canvasLayer || !this.map || !this.canvasLayer.dataReady) {
+                tooltip.classList.remove('visible');
+                visible = false;
+                return;
+            }
+            const t = this.canvasLayer.getTravelTime(lastLat, lastLng);
+            const timeEl = tooltip.querySelector('.tt-time') as HTMLElement;
+            const modeEl = tooltip.querySelector('.tt-mode') as HTMLElement;
+
+            if (t === null || t === undefined || !isFinite(t) || t > this.maxTime * 4) {
+                timeEl.textContent = '—';
+                timeEl.classList.add('tt-unreachable');
+                modeEl.textContent = 'unreachable';
+            } else {
+                const mins = t < 1 ? t.toFixed(1) : Math.round(t).toString();
+                timeEl.textContent = `${mins} min`;
+                timeEl.classList.remove('tt-unreachable');
+                modeEl.textContent = t <= this.maxTime ? 'travel time' : 'beyond max';
+            }
+
+            tooltip.style.left = `${pendingX}px`;
+            tooltip.style.top  = `${pendingY}px`;
+            if (!visible) {
+                tooltip.classList.add('visible');
+                visible = true;
+            }
+        };
+
+        mapEl.addEventListener('mousemove', (e) => {
+            if (!this.map) return;
+            const point = this.map.mouseEventToLatLng(e);
+            lastLat = point.lat;
+            lastLng = point.lng;
+            pendingX = e.clientX;
+            pendingY = e.clientY;
+            if (this.hoverRaf === null) {
+                this.hoverRaf = requestAnimationFrame(update);
             }
         });
+
+        mapEl.addEventListener('mouseleave', () => {
+            tooltip.classList.remove('visible');
+            visible = false;
+        });
+    }
+
+    // ── Best-route visualization ─────────────────────────────────────────
+    private routeLayer: L.LayerGroup | null = null;
+    private routeClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+    private showRouteAt(lat: number, lng: number): void {
+        const totalMin = this.canvasLayer?.getTravelTime(lat, lng);
+        if (totalMin === null || totalMin === undefined || !isFinite(totalMin)) {
+            this.toast('Unreachable from here', 'error');
+            return;
+        }
+
+        // Find best exit station (min: time to station + walk to dest)
+        let bestStationId: string | null = null;
+        let bestTotalSec = Infinity;
+        let bestExitWalkSec = 0;
+
+        const transitMode = this.transitGraph.nodes.size > 0 && this.networkTimes.size > 0;
+        if (transitMode) {
+            for (const [id, time] of this.networkTimes) {
+                const node = this.transitGraph.nodes.get(id);
+                if (!node) continue;
+                const dExit = distHaversine(lat, lng, node.lat, node.lon);
+                const tExit = dExit / WALK_SPEED_MPS;
+                const total = time + tExit;
+                if (total < bestTotalSec) {
+                    bestTotalSec = total;
+                    bestStationId = id;
+                    bestExitWalkSec = tExit;
+                }
+            }
+        }
+
+        // Walk-only time
+        const walkOnlySec = distHaversine(this.origin[0], this.origin[1], lat, lng) / WALK_SPEED_MPS;
+        const usingTransit = transitMode && bestStationId !== null && bestTotalSec < walkOnlySec - 30;
+
+        // Draw the route
+        this.clearRouteLayer();
+        this.routeLayer = L.layerGroup().addTo(this.map!);
+
+        // Destination marker
+        const destIcon = L.divIcon({
+            className: 'custom-div-icon',
+            html: `<div style="width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4);"></div>`,
+            iconSize: [14, 14], iconAnchor: [7, 7]
+        });
+        L.marker([lat, lng], { icon: destIcon, keyboard: false }).addTo(this.routeLayer);
+
+        let summary = '';
+        if (usingTransit) {
+            const path = this.transitGraph.getPathTo(bestStationId!);
+            const entryId = this.transitGraph.entryStations.get(bestStationId!) ?? path[0];
+            const entryNode = this.transitGraph.nodes.get(entryId);
+            const exitNode = this.transitGraph.nodes.get(bestStationId!);
+
+            if (entryNode && exitNode) {
+                // Walk leg: origin → entry station
+                L.polyline(
+                    [this.origin, [entryNode.lat, entryNode.lon]],
+                    { color: '#64748b', weight: 3, opacity: 0.85, dashArray: '5, 6', lineCap: 'round' }
+                ).addTo(this.routeLayer);
+
+                // Transit leg(s): entry → ... → exit (follow the path)
+                const coords: [number, number][] = path
+                    .map(id => this.transitGraph.nodes.get(id))
+                    .filter(n => !!n)
+                    .map(n => [n!.lat, n!.lon]);
+                if (coords.length >= 2) {
+                    L.polyline(coords, {
+                        color: '#2563eb', weight: 4, opacity: 0.95, lineCap: 'round', lineJoin: 'round'
+                    }).addTo(this.routeLayer);
+                }
+
+                // Walk leg: exit station → destination
+                L.polyline(
+                    [[exitNode.lat, exitNode.lon], [lat, lng]],
+                    { color: '#64748b', weight: 3, opacity: 0.85, dashArray: '5, 6', lineCap: 'round' }
+                ).addTo(this.routeLayer);
+
+                // Mark entry / exit stations
+                const stationIcon = (color: string) => L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.35);"></div>`,
+                    iconSize: [12, 12], iconAnchor: [6, 6]
+                });
+                L.marker([entryNode.lat, entryNode.lon], { icon: stationIcon('#2563eb'), keyboard: false }).addTo(this.routeLayer);
+                if (entryNode.id !== exitNode.id) {
+                    L.marker([exitNode.lat, exitNode.lon], { icon: stationIcon('#2563eb'), keyboard: false }).addTo(this.routeLayer);
+                }
+
+                const entryWalkMin = (distHaversine(this.origin[0], this.origin[1], entryNode.lat, entryNode.lon) / WALK_SPEED_MPS) / 60;
+                const exitWalkMin = bestExitWalkSec / 60;
+                const transitMin = totalMin - entryWalkMin - exitWalkMin;
+                const transfers = Math.max(0, path.length - 2);
+                summary = `${Math.round(totalMin)} min: walk ${entryWalkMin.toFixed(1)}m → transit ${Math.max(0, transitMin).toFixed(1)}m${transfers > 0 ? ` (${transfers} transfer${transfers > 1 ? 's' : ''})` : ''} → walk ${exitWalkMin.toFixed(1)}m`;
+            }
+        } else {
+            // Pure walking
+            L.polyline(
+                [this.origin, [lat, lng]],
+                { color: '#64748b', weight: 3, opacity: 0.9, dashArray: '5, 6', lineCap: 'round' }
+            ).addTo(this.routeLayer);
+            summary = `${Math.round(totalMin)} min on foot`;
+        }
+
+        // Popup label at the destination
+        L.popup({ closeButton: false, autoClose: false, closeOnClick: false, className: 'route-popup' })
+            .setLatLng([lat, lng])
+            .setContent(`<div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:2px;">Best route</div><div style="font-size:13px;font-weight:600;color:#0f172a;">${summary}</div>`)
+            .openOn(this.map!);
+
+        // Auto-clear after a few seconds
+        if (this.routeClearTimer) clearTimeout(this.routeClearTimer);
+        this.routeClearTimer = setTimeout(() => this.clearRouteLayer(), 8000);
+    }
+
+    private clearRouteLayer(): void {
+        if (this.routeLayer) {
+            this.map!.removeLayer(this.routeLayer);
+            this.routeLayer = null;
+        }
+        this.map?.closePopup();
+        if (this.routeClearTimer) {
+            clearTimeout(this.routeClearTimer);
+            this.routeClearTimer = null;
+        }
+    }
+
+    // ── Toast notifications ──────────────────────────────────────────────
+    private toastContainer: HTMLDivElement | null = null;
+    private toast(message: string, kind: 'success' | 'error' | 'info' = 'info', durationMs = 2400): void {
+        if (!this.toastContainer) {
+            const c = document.createElement('div');
+            c.id = 'toast-container';
+            document.body.appendChild(c);
+            this.toastContainer = c;
+        }
+        const t = document.createElement('div');
+        t.className = `toast toast-${kind}`;
+        t.innerHTML = `<span class="toast-msg"></span>`;
+        (t.querySelector('.toast-msg') as HTMLElement).textContent = message;
+        this.toastContainer.appendChild(t);
+        requestAnimationFrame(() => t.classList.add('show'));
+        setTimeout(() => {
+            t.classList.remove('show');
+            setTimeout(() => t.remove(), 220);
+        }, durationMs);
     }
 
     private prepareOrigin(lat: number, lng: number, labelText?: string): void {
@@ -175,19 +425,15 @@ class TransitTopographyApp {
         }
 
         if (this.transitGraph.nodes.size > 0) {
-            const entryNodes: Array<{ id: string; initialWalkTime: number }> = [];
-            for (const [id, node] of this.transitGraph.nodes) {
-                const dist = distHaversine(lat, lng, node.lat, node.lon);
-                if (dist < 2000) {
-                    entryNodes.push({ id, initialWalkTime: dist / WALK_SPEED_MPS });
-                }
-            }
-
-            this.networkTimes = this.transitGraph.calculateNetworkTimes(entryNodes, getBoardingWaitSec(this.currentHour));
+            this.networkTimes = this.transitGraph.calculateNetworkTimes(
+                this.buildEntryNodes(lat, lng),
+                this.getRoutingProfile()
+            );
             this.canvasLayer!.setNetworkTimes(this.networkTimes);
         }
 
         this.canvasLayer!.setOrigin(this.origin);
+        this.updateReachStats();
 
         // Set view after data is ready
         this.map!.setView(this.origin, this.map!.getZoom(), { animate: false });
@@ -203,7 +449,7 @@ class TransitTopographyApp {
             this.updateOriginLabel({ lat, lon: lng });
         }
 
-        updateUrl(this.currentCity, lat, lng, this.currentHour);
+        updateUrl(this.currentCity, lat, lng, this.currentHour, this.routingDirection);
 
         // Update all render data BEFORE panning so the moveend-triggered
         // redraw already has the correct origin, walking times, and network times.
@@ -213,19 +459,15 @@ class TransitTopographyApp {
         }
 
         if (this.transitGraph.nodes.size > 0) {
-            const entryNodes: Array<{ id: string; initialWalkTime: number }> = [];
-            for (const [id, node] of this.transitGraph.nodes) {
-                const dist = distHaversine(lat, lng, node.lat, node.lon);
-                if (dist < 2000) {
-                    entryNodes.push({ id, initialWalkTime: dist / WALK_SPEED_MPS });
-                }
-            }
-
-            this.networkTimes = this.transitGraph.calculateNetworkTimes(entryNodes, getBoardingWaitSec(this.currentHour));
+            this.networkTimes = this.transitGraph.calculateNetworkTimes(
+                this.buildEntryNodes(lat, lng),
+                this.getRoutingProfile()
+            );
             this.canvasLayer!.setNetworkTimes(this.networkTimes);
         }
 
         this.canvasLayer!.setOrigin(this.origin);
+        this.updateReachStats();
 
         // Pan after data is ready — the moveend event will trigger redraw
         // with the correct origin and transit data already set.
@@ -245,6 +487,26 @@ class TransitTopographyApp {
         } catch {
             document.getElementById('origin-label')!.innerText = `${latlng.lat.toFixed(4)}, ${latlng.lon.toFixed(4)}`;
         }
+    }
+
+    private getRoutingProfile(): RoutingProfile {
+        return {
+            boardingWaitSec: getBoardingWaitSec(this.currentHour),
+            transferPenaltySec: TRANSFER_PENALTY_SEC,
+            direction: this.routingDirection,
+            maxNetworkTimeSec: this.maxTime * 60 * 4
+        };
+    }
+
+    private buildEntryNodes(lat: number, lng: number): Array<{ id: string; initialWalkTime: number }> {
+        const entryNodes: Array<{ id: string; initialWalkTime: number }> = [];
+        for (const [id, node] of this.transitGraph.nodes) {
+            const dist = distHaversine(lat, lng, node.lat, node.lon);
+            if (dist < 2000) {
+                entryNodes.push({ id, initialWalkTime: dist / WALK_SPEED_MPS });
+            }
+        }
+        return entryNodes;
     }
 
     private initUI(): void {
@@ -274,12 +536,17 @@ class TransitTopographyApp {
         timeSlider.addEventListener('input', () => {
             this.currentHour = parseInt(timeSlider.value) * 0.5;
             this.updateTimeDisplay();
-            updateUrl(this.currentCity, this.origin[0], this.origin[1], this.currentHour);
+            updateUrl(this.currentCity, this.origin[0], this.origin[1], this.currentHour, this.routingDirection);
             if (this.transitGraph.nodes.size > 0) {
                 this.updateOrigin(this.origin[0], this.origin[1]);
             }
         });
+        this.syncRoutingDirectionButtons();
         this.updateTimeDisplay();
+
+        document.getElementById('time-play-btn')!.addEventListener('click', () => this.toggleTimePlayback());
+        document.getElementById('depart-mode-btn')!.addEventListener('click', () => this.setRoutingDirection('depart'));
+        document.getElementById('arrive-mode-btn')!.addEventListener('click', () => this.setRoutingDirection('arrive'));
 
         document.getElementById('theme-btn')!.addEventListener('click', this.toggleDarkMode);
 
@@ -318,19 +585,59 @@ class TransitTopographyApp {
         document.getElementById('share-btn')!.addEventListener('click', () => {
             const url = window.location.href;
             navigator.clipboard.writeText(url).then(() => {
-                const btn = document.getElementById('share-btn')!;
-                const originalHTML = btn.innerHTML;
-                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Copied!';
-                btn.classList.add('bg-green-100', 'text-green-700');
-                setTimeout(() => {
-                    btn.innerHTML = originalHTML;
-                    btn.classList.remove('bg-green-100', 'text-green-700');
-                }, 2000);
+                this.toast('Link copied to clipboard', 'success');
             }).catch(err => {
                 console.error('Failed to copy:', err);
-                prompt('Copy this link:', url);
+                this.toast('Could not copy link — open dev tools to grab URL', 'error');
             });
         });
+    }
+
+    // ── Time playback (animate through 24 hours) ─────────────────────────
+    private playbackTimer: ReturnType<typeof setInterval> | null = null;
+
+    private toggleTimePlayback(): void {
+        if (this.playbackTimer) {
+            this.stopTimePlayback();
+        } else {
+            this.startTimePlayback();
+        }
+    }
+
+    private startTimePlayback(): void {
+        const btn = document.getElementById('time-play-btn')!;
+        const playIcon = document.getElementById('time-play-icon')!;
+        const pauseIcon = document.getElementById('time-pause-icon')!;
+        const slider = document.getElementById('time-slider') as HTMLInputElement;
+
+        btn.classList.add('is-playing');
+        playIcon.classList.add('hidden');
+        pauseIcon.classList.remove('hidden');
+        btn.setAttribute('aria-label', 'Pause time animation');
+
+        // Step every 800ms, advance 30 min per step
+        this.playbackTimer = setInterval(() => {
+            let next = parseInt(slider.value) + 1;
+            if (next > 47) next = 0;
+            slider.value = String(next);
+            slider.dispatchEvent(new Event('input'));
+        }, 800);
+
+        this.toast('Playing 24-hour cycle — press Space to pause', 'info', 1800);
+    }
+
+    private stopTimePlayback(): void {
+        if (this.playbackTimer) {
+            clearInterval(this.playbackTimer);
+            this.playbackTimer = null;
+        }
+        const btn = document.getElementById('time-play-btn')!;
+        const playIcon = document.getElementById('time-play-icon')!;
+        const pauseIcon = document.getElementById('time-pause-icon')!;
+        btn.classList.remove('is-playing');
+        playIcon.classList.remove('hidden');
+        pauseIcon.classList.add('hidden');
+        btn.setAttribute('aria-label', 'Play time animation');
     }
 
     private updateTimeDisplay(): void {
@@ -338,12 +645,34 @@ class TransitTopographyApp {
         const headwayMin = Math.round(period.headwaySec / 60);
 
         const timeDisplay = document.getElementById('time-display');
+        const modeLabel = document.getElementById('time-mode-label');
         const serviceDot  = document.getElementById('service-dot');
         const serviceLabel = document.getElementById('service-label');
 
         if (timeDisplay)  timeDisplay.textContent = formatHour(this.currentHour);
+        if (modeLabel) modeLabel.textContent = this.routingDirection === 'arrive' ? 'Arrival Time' : 'Departure Time';
         if (serviceDot)   serviceDot.style.backgroundColor = period.color;
         if (serviceLabel) serviceLabel.textContent = `${period.name} · ~${headwayMin} min frequency`;
+    }
+
+    private setRoutingDirection(direction: RoutingProfile['direction']): void {
+        if (this.routingDirection === direction) return;
+        this.routingDirection = direction;
+        this.syncRoutingDirectionButtons();
+        this.updateTimeDisplay();
+        updateUrl(this.currentCity, this.origin[0], this.origin[1], this.currentHour, this.routingDirection);
+        if (this.transitGraph.nodes.size > 0) {
+            this.updateOrigin(this.origin[0], this.origin[1]);
+        }
+    }
+
+    private syncRoutingDirectionButtons(): void {
+        const depart = document.getElementById('depart-mode-btn');
+        const arrive = document.getElementById('arrive-mode-btn');
+        depart?.classList.toggle('active', this.routingDirection === 'depart');
+        arrive?.classList.toggle('active', this.routingDirection === 'arrive');
+        depart?.setAttribute('aria-pressed', String(this.routingDirection === 'depart'));
+        arrive?.setAttribute('aria-pressed', String(this.routingDirection === 'arrive'));
     }
 
     private initCityModal(): void {
@@ -438,7 +767,10 @@ class TransitTopographyApp {
         this.map!.setView(this.origin, city.zoom);
         this.originMarker!.setLatLng(this.origin);
 
-        updateUrl(cityKey, this.origin[0], this.origin[1], this.currentHour);
+        updateUrl(cityKey, this.origin[0], this.origin[1], this.currentHour, this.routingDirection);
+        this.posterTab.syncCity(cityKey);
+        this.posterTab.syncOrigin(this.origin, city.name);
+        this.updateModeAvailability();
         this.loadCity();
     }
 
@@ -469,12 +801,18 @@ class TransitTopographyApp {
                 slider.dispatchEvent(new Event('input'));
                 break;
             }
+            case ' ': {
+                e.preventDefault();
+                this.toggleTimePlayback();
+                break;
+            }
             case '?':
                 document.getElementById('help-modal')!.classList.toggle('hidden');
                 break;
             case 'Escape':
                 document.getElementById('help-modal')!.classList.add('hidden');
                 document.getElementById('city-modal')!.classList.add('hidden');
+                this.stopTimePlayback();
                 break;
         }
     }
@@ -669,11 +1007,58 @@ class TransitTopographyApp {
             link.click();
         } catch (err) {
             console.error('Export failed:', err);
-            alert('Export failed. Please try again.');
+            this.toast('Export failed — please try again', 'error');
         } finally {
             btn.innerHTML = originalHTML;
             (btn as HTMLButtonElement).disabled = false;
         }
+    }
+
+    // ── Recent searches (persisted) ──────────────────────────────────────
+    private readonly RECENT_KEY = 'tt_recent_searches_v1';
+    private getRecentSearches(): Array<{ name: string; address: string; lat: number; lon: number; city?: string }> {
+        try {
+            const raw = localStorage.getItem(this.RECENT_KEY);
+            return raw ? JSON.parse(raw) : [];
+        } catch { return []; }
+    }
+    private addRecentSearch(entry: { name: string; address: string; lat: number; lon: number; city?: string }): void {
+        const list = this.getRecentSearches().filter(r => !(Math.abs(r.lat - entry.lat) < 1e-4 && Math.abs(r.lon - entry.lon) < 1e-4));
+        list.unshift(entry);
+        const trimmed = list.slice(0, 5);
+        try { localStorage.setItem(this.RECENT_KEY, JSON.stringify(trimmed)); } catch {}
+        this.renderRecentSearches();
+    }
+    private renderRecentSearches(): void {
+        const container = document.getElementById('recent-searches');
+        if (!container) return;
+        const recents = this.getRecentSearches();
+        if (recents.length === 0) {
+            container.classList.add('hidden');
+            container.innerHTML = '';
+            return;
+        }
+        container.classList.remove('hidden');
+        container.innerHTML = '';
+        recents.forEach((r) => {
+            const chip = document.createElement('button');
+            chip.className = 'recent-chip';
+            chip.type = 'button';
+            chip.textContent = r.name;
+            chip.title = r.address;
+            chip.addEventListener('click', async () => {
+                if (r.city && CITIES[r.city] && r.city !== this.currentCity) {
+                    this.currentCity = r.city;
+                    document.getElementById('city-title')!.textContent = CITIES[r.city]?.name || r.city;
+                    this.origin = [r.lat, r.lon];
+                    await this.loadCity();
+                }
+                this.updateOrigin(r.lat, r.lon, r.name);
+                const targetZoom = Math.max(this.map!.getZoom(), 15);
+                this.map!.setView([r.lat, r.lon], targetZoom, { animate: true });
+            });
+            container.appendChild(chip);
+        });
     }
 
     private initAddressSearch(): void {
@@ -681,6 +1066,8 @@ class TransitTopographyApp {
         const container = document.getElementById('search-container')!;
         const input = document.getElementById('origin-input') as HTMLInputElement;
         const list = document.getElementById('suggestions-list')!;
+
+        this.renderRecentSearches();
 
         label.addEventListener('click', () => {
             label.classList.add('hidden');
@@ -696,21 +1083,33 @@ class TransitTopographyApp {
                 return;
             }
 
-            if (!LOCATIONIQ_API_KEY) {
-                console.warn("LocationIQ API Key not set.");
-                return;
-            }
-
             const normalizedQuery = normalizeQuery(query);
 
             try {
-                const url = `https://api.locationiq.com/v1/autocomplete?key=${LOCATIONIQ_API_KEY}&q=${encodeURIComponent(normalizedQuery)}&limit=5&dedupe=1`;
-                const resp = await fetch(url);
-                if (!resp.ok) throw new Error("LocationIQ API Error: " + resp.statusText);
-                const data = await resp.json();
+                let data: any[] = [];
+
+                if (LOCATIONIQ_API_KEY) {
+                    const url = `https://api.locationiq.com/v1/autocomplete?key=${LOCATIONIQ_API_KEY}&q=${encodeURIComponent(normalizedQuery)}&limit=5&dedupe=1`;
+                    const resp = await fetch(url);
+                    if (resp.ok) {
+                        data = await resp.json();
+                    } else if (resp.status !== 404) {
+                        throw new Error("LocationIQ API Error: " + resp.statusText);
+                    }
+                }
+
+                // Fallback to Nominatim (free, no key) if LocationIQ unavailable or returned nothing
+                if (!data || data.length === 0) {
+                    const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(normalizedQuery)}&limit=5&addressdetails=1`;
+                    const resp = await fetch(nomUrl);
+                    if (!resp.ok) throw new Error("Nominatim error: " + resp.statusText);
+                    data = await resp.json();
+                }
+
                 this.renderSuggestions(data, list, input, container, label);
             } catch (e) {
                 console.error("Search error", e);
+                this.toast('Address search unavailable — please try again', 'error');
             }
         }, 300);
 
@@ -788,7 +1187,7 @@ class TransitTopographyApp {
                 this.origin = [lat, lon];
                 this.originMarker!.setLatLng([lat, lon]);
                 document.getElementById('origin-label')!.innerText = name;
-                updateUrl(this.currentCity, lat, lon, this.currentHour);
+                updateUrl(this.currentCity, lat, lon, this.currentHour, this.routingDirection);
 
                 // Update all render data BEFORE setView so the moveend-triggered
                 // redraw uses the correct origin and computed times.
@@ -798,14 +1197,10 @@ class TransitTopographyApp {
                 }
 
                 if (this.transitGraph.nodes.size > 0) {
-                    const entryNodes: Array<{ id: string; initialWalkTime: number }> = [];
-                    for (const [id, node] of this.transitGraph.nodes) {
-                        const dist = distHaversine(lat, lon, node.lat, node.lon);
-                        if (dist < 2000) {
-                            entryNodes.push({ id, initialWalkTime: dist / WALK_SPEED_MPS });
-                        }
-                    }
-                    this.networkTimes = this.transitGraph.calculateNetworkTimes(entryNodes, getBoardingWaitSec(this.currentHour));
+                    this.networkTimes = this.transitGraph.calculateNetworkTimes(
+                        this.buildEntryNodes(lat, lon),
+                        this.getRoutingProfile()
+                    );
                     this.canvasLayer!.setNetworkTimes(this.networkTimes);
                 }
 
@@ -814,6 +1209,14 @@ class TransitTopographyApp {
                 // Set view after data is ready
                 const targetZoom = Math.max(this.map!.getZoom(), 15);
                 this.map!.setView([lat, lon], targetZoom, { animate: true });
+
+                // Persist to recent searches
+                this.addRecentSearch({
+                    name,
+                    address: address || displayName,
+                    lat, lon,
+                    city: this.currentCity
+                });
             });
 
             list.appendChild(li);
@@ -835,6 +1238,7 @@ class TransitTopographyApp {
                 this.origin = [...city.center] as [number, number];
                 this.map!.setView(this.origin, city.zoom);
                 this.updateOrigin(this.origin[0], this.origin[1], "City Center");
+                this.updateModeAvailability();
                 this.loadCity();
             }
         });
@@ -850,6 +1254,7 @@ class TransitTopographyApp {
         const busToggle = document.getElementById('bus-toggle') as HTMLInputElement;
 
         try {
+            this.updateModeAvailability();
             loading.classList.remove('hidden');
             countLabel.classList.add('hidden');
 
@@ -887,8 +1292,13 @@ class TransitTopographyApp {
                     await this.buildingMask.loadBuildingData(city.buildings);
                 }
 
-                const walkingUrl = `transit_data/walking_${cityKey}.json`;
-                await this.walkingNetwork.loadNetwork(walkingUrl);
+                const manifest = getCityManifest(cityKey);
+                if (manifest?.walkingFile) {
+                    await this.walkingNetwork.loadNetwork(manifest.walkingFile);
+                } else {
+                    this.walkingNetwork.clear();
+                    this.walkingNetwork.enabled = false;
+                }
             } else {
                 const bounds = this.map!.getBounds();
                 count = await this.transitFetcher.fetchRoutes(bounds);
@@ -909,9 +1319,17 @@ class TransitTopographyApp {
             this.canvasLayer!.setDataReady(true);
             this.canvasLayer!.redraw();
 
+            this.updateReachStats();
+
+            // Keep poster tab in sync
+            this.posterTab.currentCityKey = cityKey;
+            this.posterTab.transitGraph = this.transitGraph;
+            this.posterTab.waterMask = this.waterMask;
+            this.posterTab.walkingNetwork = this.walkingNetwork;
+
         } catch (err) {
             console.error(err);
-            alert(`Failed to load data for ${cityKey}. Error: ${(err as Error).message}`);
+            this.toast(`Failed to load ${cityKey.toUpperCase()}: ${(err as Error).message}`, 'error', 4000);
         } finally {
             loading.classList.add('hidden');
         }
@@ -962,6 +1380,53 @@ class TransitTopographyApp {
             html += `<span>${time}${i === steps ? 'm' : ''}</span>`;
         }
         labels.innerHTML = html;
+        this.updateReachStats();
+    }
+
+    private updateReachStats(): void {
+        const card = document.getElementById('reach-stats');
+        if (!card) return;
+        if (this.networkTimes.size === 0 || this.transitGraph.nodes.size === 0) {
+            card.classList.add('hidden');
+            return;
+        }
+
+        const maxSec = this.maxTime * 60;
+        let reachable = 0;
+        let bestSec = Infinity;
+        let bestId: string | null = null;
+        let farthestKm = 0;
+
+        for (const [id, time] of this.networkTimes) {
+            if (time > maxSec) continue;
+            reachable++;
+            if (time < bestSec) {
+                bestSec = time;
+                bestId = id;
+            }
+            const node = this.transitGraph.nodes.get(id);
+            if (node) {
+                const km = distHaversine(this.origin[0], this.origin[1], node.lat, node.lon) / 1000;
+                if (km > farthestKm) farthestKm = km;
+            }
+        }
+
+        if (reachable === 0) {
+            card.classList.add('hidden');
+            return;
+        }
+
+        card.classList.remove('hidden');
+        document.getElementById('reach-stats-time')!.textContent = String(this.maxTime);
+        document.getElementById('reach-stats-stations')!.textContent = reachable.toLocaleString();
+
+        const parts: string[] = [];
+        if (farthestKm > 0) parts.push(`Reaches up to ${farthestKm.toFixed(1)} km`);
+        if (bestId) {
+            const m = Math.max(0, Math.round(bestSec / 60));
+            parts.push(`Nearest station ${m} min`);
+        }
+        document.getElementById('reach-stats-detail')!.textContent = parts.join(' · ');
     }
 
     private updateWalkingNetworkUI(): void {
@@ -971,18 +1436,37 @@ class TransitTopographyApp {
 
         if (!container) return;
 
-        const hasWalkingData = WALKING_NETWORK_CITIES.includes(this.currentCity);
+        const manifest = getCityManifest(this.currentCity);
+        const hasWalkingData = manifest?.features.walking ?? false;
 
         if (hasWalkingData) {
             container.classList.remove('hidden');
-            const abbrevs = WALKING_NETWORK_CITIES.map(c => c.toUpperCase()).join(', ');
-            if (citiesLabel) citiesLabel.textContent = `(${abbrevs})`;
+            const walkingCityCount = Object.values(CITY_MANIFEST).filter(c => c.features.walking).length;
+            if (citiesLabel) citiesLabel.textContent = `(${walkingCityCount} cities)`;
             toggle.checked = true;
             this.walkingNetwork.enabled = true;
         } else {
             container.classList.add('hidden');
             toggle.checked = false;
             this.walkingNetwork.enabled = false;
+        }
+    }
+
+    private updateModeAvailability(): void {
+        const manifest = getCityManifest(this.currentCity);
+        const busToggle = document.getElementById('bus-toggle') as HTMLInputElement | null;
+        const busLabel = document.querySelector('label[for="bus-toggle"]') as HTMLElement | null;
+
+        if (busToggle) {
+            busToggle.disabled = !(manifest?.features.bus ?? false);
+            if (busToggle.disabled) {
+                busToggle.checked = false;
+            }
+        }
+
+        if (busLabel) {
+            busLabel.classList.toggle('text-gray-400', !(manifest?.features.bus ?? false));
+            busLabel.textContent = manifest?.features.bus ? 'Include Buses' : 'Bus Data Unavailable';
         }
     }
 
@@ -1022,4 +1506,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const app = new TransitTopographyApp();
     app.init();
     (window as any).transitApp = app;
+
+    if ('serviceWorker' in navigator && import.meta.env.PROD) {
+        const serviceWorkerUrl = `${import.meta.env.BASE_URL}sw.js`;
+        navigator.serviceWorker.register(serviceWorkerUrl).catch((err) => {
+            console.warn('Service worker registration failed:', err);
+        });
+    }
 });

@@ -10,16 +10,16 @@ export function getColor(minutes: number, opacity: number, maxTime: number = 30)
     const interval = maxTime / 6;
 
     if (minutes < interval) {
-        return [59, 130, 246, alpha];       // Blue
+        return [27, 95, 214, alpha];        // Cobalt
     } else if (minutes < interval * 2) {
-        return [6, 182, 212, alpha];        // Cyan
+        return [0, 166, 166, alpha];        // Teal
     } else if (minutes < interval * 3) {
-        return [16, 185, 129, alpha];       // Emerald
+        return [49, 183, 111, alpha];       // Green
     } else if (minutes < interval * 4) {
-        return [132, 204, 22, alpha];       // Lime
+        return [215, 170, 34, alpha];       // Gold
     } else if (minutes < interval * 5) {
-        return [250, 204, 21, alpha];       // Yellow
+        return [241, 132, 57, alpha];       // Orange
     } else {
-        return [249, 115, 22, alpha];       // Orange
+        return [225, 79, 71, alpha];        // Coral
     }
 }

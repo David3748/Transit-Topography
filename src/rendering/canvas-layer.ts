@@ -93,15 +93,22 @@ export class IsochoneCanvasLayer {
     }
 
     private _initWebGL(): void {
-        // TODO: re-enable once WebGL shader color gradient is fixed
-        // try {
-        //     const renderer = new WebGLRenderer();
-        //     if (renderer.isSupported) {
-        //         this.webglRenderer = renderer;
-        //     }
-        // } catch {
-        //     // WebGL unavailable; worker fallback will be used
-        // }
+        const params = new URLSearchParams(window.location.search);
+        const webglOptIn = params.get('webgl') === '1' || localStorage.getItem('tt_webgl') === 'true';
+        if (!webglOptIn) {
+            this.webglRenderer = null;
+            return;
+        }
+
+        try {
+            const renderer = new WebGLRenderer();
+            if (renderer.isSupported) {
+                this.webglRenderer = renderer;
+            }
+        } catch (err) {
+            console.warn('WebGL renderer unavailable, using worker renderer:', err);
+            this.webglRenderer = null;
+        }
     }
 
     private _initWorker(): void {
@@ -263,6 +270,10 @@ export class IsochoneCanvasLayer {
 
     redraw(immediate: boolean = false): void {
         if (!this.canvas || !this.map || !this.dataReady) return;
+        if (this.canvas.width === 0 || this.canvas.height === 0) {
+            // Canvas not yet sized — wait for the next moveend/zoomend triggered _reset
+            return;
+        }
 
         const now = Date.now();
         if (!immediate && this.isRendering) {
@@ -298,7 +309,17 @@ export class IsochoneCanvasLayer {
 
     private _executeRender(): void {
         if (this.webglRenderer?.isSupported) {
-            this._renderWithWebGL();
+            try {
+                this._renderWithWebGL();
+            } catch (err) {
+                console.warn('WebGL render failed, disabling WebGL renderer:', err);
+                this.webglRenderer = null;
+                if (this.worker) {
+                    this._renderWithWorker();
+                } else {
+                    this._renderMainThread();
+                }
+            }
         } else if (this.worker) {
             this._renderWithWorker();
         } else {
@@ -333,11 +354,13 @@ export class IsochoneCanvasLayer {
 
         if (hasWater) {
             this.waterMask!.updateCanvas(this.map!);
-            octx.drawImage(this.waterMask!.canvas, 0, 0);
+            const wc = this.waterMask!.canvas;
+            if (wc.width > 0 && wc.height > 0) octx.drawImage(wc, 0, 0);
         }
         if (hasBuilding) {
             this.buildingMask!.updateCanvas(this.map!);
-            octx.drawImage(this.buildingMask!.canvas, 0, 0);
+            const bc = this.buildingMask!.canvas;
+            if (bc.width > 0 && bc.height > 0) octx.drawImage(bc, 0, 0);
         }
         return oc;
     }
@@ -466,12 +489,14 @@ export class IsochoneCanvasLayer {
 
         if (this.waterMask && this.waterMask.isLoaded) {
             this.waterMask.updateCanvas(this.map!);
-            obstacleCtx.drawImage(this.waterMask.canvas, 0, 0);
+            const wc = this.waterMask.canvas;
+            if (wc.width > 0 && wc.height > 0) obstacleCtx.drawImage(wc, 0, 0);
         }
 
         if (this.buildingMask && this.buildingMask.isLoaded && this.buildingMask.enabled) {
             this.buildingMask.updateCanvas(this.map!);
-            obstacleCtx.drawImage(this.buildingMask.canvas, 0, 0);
+            const bc = this.buildingMask.canvas;
+            if (bc.width > 0 && bc.height > 0) obstacleCtx.drawImage(bc, 0, 0);
         }
 
         obstacleData = obstacleCtx.getImageData(0, 0, width, height).data;

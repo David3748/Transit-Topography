@@ -1,10 +1,16 @@
 import { distHaversine } from '../utils/haversine';
 import { BinaryHeap } from './binary-heap';
-import type { GraphNode, Station } from '../types';
+import type { GraphNode, RoutingProfile, Station } from '../types';
+
+const DEFAULT_TRANSFER_PENALTY_SEC = 15;
 
 export class TransitGraph {
     nodes: Map<string, GraphNode> = new Map();
     stations: Station[] = [];
+    /** Predecessor map from last calculateNetworkTimes() — used for route reconstruction. */
+    predecessors: Map<string, string | null> = new Map();
+    /** First station boarded from origin, per node (entry point for the trip). */
+    entryStations: Map<string, string> = new Map();
 
     addNode(id: string, lat: number, lon: number): void {
         if (!this.nodes.has(id)) {
@@ -82,19 +88,42 @@ export class TransitGraph {
         console.log(`Generated transfer edges (threshold: ${distanceThreshold}m) using Spatial Index`);
     }
 
+    private normalizeRoutingProfile(profileOrBoardingWaitSec: number | RoutingProfile): RoutingProfile {
+        if (typeof profileOrBoardingWaitSec === 'number') {
+            return {
+                boardingWaitSec: profileOrBoardingWaitSec,
+                transferPenaltySec: DEFAULT_TRANSFER_PENALTY_SEC,
+                direction: 'depart'
+            };
+        }
+
+        return profileOrBoardingWaitSec;
+    }
+
     /**
      * Run Dijkstra from one or more starting nodes (stations near the origin).
-     * @param startNodes     Stations within walking distance of the trip origin.
-     * @param boardingWaitSec Expected wait for the first vehicle (headway / 2).
+     * `direction: "arrive"` traverses the graph backwards for reverse isochrones.
      */
-    calculateNetworkTimes(startNodes: Array<{ id: string; initialWalkTime: number }>, boardingWaitSec: number): Map<string, number> {
+    calculateNetworkTimes(
+        startNodes: Array<{ id: string; initialWalkTime: number }>,
+        profileOrBoardingWaitSec: number | RoutingProfile
+    ): Map<string, number> {
+        const profile = this.normalizeRoutingProfile(profileOrBoardingWaitSec);
         const times = new Map<string, number>();
+        const preds = new Map<string, string | null>();
+        const entries = new Map<string, string>();
         const pq = new BinaryHeap<{ id: string; time: number }>();
+        const reverseNeighbors = profile.direction === 'arrive' ? this.buildReverseNeighbors() : null;
 
         startNodes.forEach(start => {
-            const t = start.initialWalkTime + boardingWaitSec;
-            times.set(start.id, t);
-            pq.push({ id: start.id, time: t });
+            const t = start.initialWalkTime + profile.boardingWaitSec;
+            // Keep the cheapest start if duplicates
+            if (!times.has(start.id) || t < times.get(start.id)!) {
+                times.set(start.id, t);
+                preds.set(start.id, null);
+                entries.set(start.id, start.id);
+                pq.push({ id: start.id, time: t });
+            }
         });
 
         while (pq.size() > 0) {
@@ -105,16 +134,51 @@ export class TransitGraph {
             const currNode = this.nodes.get(currId);
             if (!currNode) continue;
 
-            for (const [neighborId, travelTime] of currNode.neighbors) {
-                const newTime = currTime + travelTime + 15;
+            const neighbors = reverseNeighbors?.get(currId) ?? currNode.neighbors;
+            for (const [neighborId, travelTime] of neighbors) {
+                const newTime = currTime + travelTime + profile.transferPenaltySec;
+                if (profile.maxNetworkTimeSec !== undefined && newTime > profile.maxNetworkTimeSec) continue;
 
                 if (!times.has(neighborId) || newTime < times.get(neighborId)!) {
                     times.set(neighborId, newTime);
+                    preds.set(neighborId, currId);
+                    entries.set(neighborId, entries.get(currId)!);
                     pq.push({ id: neighborId, time: newTime });
                 }
             }
         }
 
+        this.predecessors = preds;
+        this.entryStations = entries;
         return times;
+    }
+
+    private buildReverseNeighbors(): Map<string, Map<string, number>> {
+        const reverse = new Map<string, Map<string, number>>();
+        for (const id of this.nodes.keys()) {
+            reverse.set(id, new Map());
+        }
+
+        for (const [fromId, node] of this.nodes) {
+            for (const [toId, time] of node.neighbors) {
+                if (!reverse.has(toId)) reverse.set(toId, new Map());
+                reverse.get(toId)!.set(fromId, time);
+            }
+        }
+
+        return reverse;
+    }
+
+    /** Reconstruct the path from origin's entry station to a destination station. */
+    getPathTo(stationId: string): string[] {
+        const path: string[] = [];
+        let curr: string | null | undefined = stationId;
+        const seen = new Set<string>();
+        while (curr && !seen.has(curr)) {
+            seen.add(curr);
+            path.unshift(curr);
+            curr = this.predecessors.get(curr);
+        }
+        return path;
     }
 }

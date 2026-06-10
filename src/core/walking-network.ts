@@ -15,6 +15,14 @@ export class WalkingNetwork {
     walkingTimes: Map<string, number> = new Map();
     private currentOrigin: { lat: number; lon: number } | null = null;
 
+    clear(): void {
+        this.nodes.clear();
+        this.grid.clear();
+        this.walkingTimes.clear();
+        this.currentOrigin = null;
+        this.isLoaded = false;
+    }
+
     async loadNetwork(url: string): Promise<boolean> {
         try {
             const cacheKey = `walking_cache_${url}`;
@@ -52,11 +60,7 @@ export class WalkingNetwork {
                 }
             }
 
-            // Clear existing
-            this.nodes.clear();
-            this.grid.clear();
-            this.walkingTimes.clear();
-            this.currentOrigin = null;
+            this.clear();
 
             const isOptimized = (data as OptimizedWalkingData).v === 2;
 

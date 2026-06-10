@@ -18,6 +18,13 @@ export interface Edge {
   weight: number;
 }
 
+export interface RoutingProfile {
+  boardingWaitSec: number;
+  transferPenaltySec: number;
+  direction: 'depart' | 'arrive';
+  maxNetworkTimeSec?: number;
+}
+
 export interface TransitData {
   nodes: Array<{ id: string; lat: number; lon: number }>;
   edges: Edge[];
@@ -115,4 +122,64 @@ export interface OverpassElement {
 
 export interface OverpassResponse {
   elements: OverpassElement[];
+}
+
+// ── Poster types ──────────────────────────────────────────────────────────
+
+export interface PosterConfig {
+  city: string;
+  origin: [number, number];
+  originLabel: string;
+  themeId: string;
+  aspectRatio: '16:9' | '3:2' | '1:1' | '2:3';
+  maxTime: number;      // minutes
+  hourOfDay: number;    // 0-23.5
+  includeBuses: boolean;
+}
+
+export interface PosterBounds {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+  width: number;   // canvas pixels
+  height: number;  // canvas pixels
+}
+
+export interface PosterStation {
+  lat: number;
+  lon: number;
+  time: number;
+  isRail: boolean;
+}
+
+export interface PosterEdge {
+  lat1: number;
+  lon1: number;
+  lat2: number;
+  lon2: number;
+  isRail: boolean;
+}
+
+export interface PosterWorkerInput {
+  type: 'generate';
+  config: PosterConfig;
+  bounds: PosterBounds;
+  theme: import('../poster/poster-themes').PosterTheme;
+  stations: PosterStation[];
+  edges: PosterEdge[];
+  waterPolygons: [number, number][][];
+  walkingGrid: { data: number[]; size: number; bounds: MapBounds } | null;
+  walkSpeedMps: number;
+  origin: [number, number];
+}
+
+export interface PosterWorkerOutput {
+  type: 'progress' | 'complete' | 'error';
+  progress?: number;
+  layerName?: string;
+  imageData?: ArrayBuffer;
+  width?: number;
+  height?: number;
+  message?: string;
 }

@@ -19,6 +19,31 @@
 
     <!-- UI Overlay -->
     <div class="absolute top-4 left-4 z-[1000] glass-panel p-6 rounded-2xl max-w-sm transition-all duration-300 control-panel-mobile" role="region" aria-label="Transit isochrone controls">
+
+        <div class="app-brand">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="app-brand-mark" aria-hidden="true"></div>
+                <div class="min-w-0">
+                    <div class="app-brand-title">Transit Topography</div>
+                    <div class="app-brand-subtitle">Public transport reach</div>
+                </div>
+            </div>
+            <span id="service-dot" class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: #22c55e;" title="Service level"></span>
+        </div>
+
+        <!-- Tab Bar -->
+        <div id="mode-tabs" class="flex mb-4 -mx-6 -mt-6 px-4 pt-3 border-b" style="border-color: var(--border);">
+            <button id="tab-explore" class="tab-btn tab-active px-4 py-2 text-sm font-semibold border-b-2 transition-colors" style="border-color: var(--accent); color: var(--accent);">
+                Map
+            </button>
+            <button id="tab-poster" class="tab-btn px-4 py-2 text-sm font-semibold border-b-2 border-transparent transition-colors ml-2" style="color: var(--text-muted);">
+                Poster
+            </button>
+        </div>
+
+        <!-- ═══ EXPLORE PANEL ═══ -->
+        <div id="panel-explore">
+
         <h1 class="text-2xl font-extrabold mb-1 tracking-tight text-gray-900">
             <button id="city-title-btn" class="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1" title="Click to change city" aria-label="Change city, currently New York City" aria-haspopup="dialog">
                 <span id="city-title" aria-live="polite">New York City</span>
@@ -27,7 +52,7 @@
                 </svg>
             </button>
         </h1>
-        <p class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Isochrone Simulator</p>
+        <p class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Reach map</p>
 
         <div class="mb-4">
             <div class="flex justify-between text-sm font-semibold mb-1 text-gray-700">
@@ -39,6 +64,9 @@
                 title="Click to change address">
                 Grand Central Terminal
             </div>
+
+            <!-- Recent searches chips -->
+            <div id="recent-searches" class="hidden"></div>
 
             <!-- Search Container (Relative for dropdown positioning) -->
             <div id="search-container" class="relative hidden">
@@ -54,7 +82,7 @@
                 </ul>
             </div>
 
-            <p class="text-xs text-gray-500 mt-1"><strong>Ctrl+click</strong> map to move origin. Right-click for travel time.</p>
+            <p class="sr-only">Ctrl+click the map to move origin. Right-click for travel time.</p>
         </div>
 
         <div class="mb-6">
@@ -95,13 +123,22 @@
         <!-- Departure Time -->
         <div class="mb-4">
             <div class="flex justify-between items-center text-xs font-medium text-gray-700 mb-1">
-                <span>Departure Time</span>
+                <span id="time-mode-label">Departure Time</span>
                 <span id="time-display" class="font-mono text-blue-600">8:00 AM</span>
             </div>
-            <input type="range" id="time-slider" min="0" max="47" step="1" value="16"
-                class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+            <div class="mb-2 grid grid-cols-2 gap-1 rounded bg-gray-100 p-1" role="group" aria-label="Routing direction">
+                <button id="depart-mode-btn" type="button" class="routing-mode-btn active" data-direction="depart" aria-pressed="true">Depart</button>
+                <button id="arrive-mode-btn" type="button" class="routing-mode-btn" data-direction="arrive" aria-pressed="false">Arrive</button>
+            </div>
+            <div class="time-row">
+                <button id="time-play-btn" type="button" title="Animate through the day (Space)" aria-label="Play time animation">
+                    <svg id="time-play-icon" xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path d="M6 4l10 6-10 6V4z"/></svg>
+                    <svg id="time-pause-icon" xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 hidden" viewBox="0 0 20 20" fill="currentColor"><path d="M6 4h3v12H6zM11 4h3v12h-3z"/></svg>
+                </button>
+                <input type="range" id="time-slider" min="0" max="47" step="1" value="16"
+                    class="h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+            </div>
             <div class="flex items-center gap-1.5 mt-1">
-                <span id="service-dot" class="w-2 h-2 rounded-full flex-shrink-0" style="background-color: #22c55e;"></span>
                 <span id="service-label" class="text-[10px] text-gray-500">AM Rush Hour · ~3 min frequency</span>
             </div>
         </div>
@@ -117,23 +154,19 @@
                     aria-valuenow="0.6">
             </div>
             <div class="flex items-center justify-between">
-                <label for="res-select" class="text-xs font-medium text-gray-700">Resolution (Speed vs Quality)</label>
+                <label for="res-select" class="text-xs font-medium text-gray-700">Resolution</label>
                 <select id="res-select"
                     class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
                     aria-label="Rendering quality">
                     <option value="6">Low (Fast)</option>
-                    <option value="3">Medium</option>
-                    <option value="2" selected>High</option>
+                    <option value="3" selected>Medium</option>
+                    <option value="2">High</option>
                     <option value="1">Ultra (Slow)</option>
                 </select>
             </div>
         </div>
 
         <div class="mt-6 pt-4 border-t border-gray-200">
-            <p class="text-[10px] text-gray-500 leading-relaxed">
-                <strong class="text-gray-800">How it works:</strong> This simulation combines walking speed (5km/h) with
-                a rapid transit network model. It calculates the optimal path from the origin to every pixel on screen.
-            </p>
             <div class="mt-3">
                 <!-- Hidden city select for JS compatibility -->
                 <select id="city-select" class="hidden">
@@ -144,8 +177,7 @@
                 <div class="mb-2 flex items-center">
                     <input id="bus-toggle" type="checkbox"
                         class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
-                    <label for="bus-toggle" class="ml-2 text-xs font-medium text-gray-700">Include Buses
-                        (Slower)</label>
+                    <label for="bus-toggle" class="ml-2 text-xs font-medium text-gray-700">Include Buses</label>
                 </div>
 
                 <!-- Station Toggle -->
@@ -166,7 +198,7 @@
                 <div id="walking-network-container" class="mb-3 flex items-center hidden">
                     <input id="walking-network-toggle" type="checkbox" checked
                         class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
-                    <label for="walking-network-toggle" class="ml-2 text-xs font-medium text-gray-700">Use Street Network</label>
+                    <label for="walking-network-toggle" class="ml-2 text-xs font-medium text-gray-700">Street Network</label>
                     <span id="walking-network-cities" class="ml-1 text-[10px] text-gray-400"></span>
                 </div>
 
@@ -177,11 +209,122 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
-                    Load Transit Network
+                    Refresh Network
                 </button>
                 <p id="station-count" class="text-[10px] text-gray-400 mt-1 text-center hidden">Loaded 0 stations</p>
             </div>
         </div>
+
+        <!-- Reachability Stats -->
+        <div id="reach-stats" class="hidden mt-3">
+            <div class="text-[10px] uppercase tracking-widest text-gray-500 font-semibold mb-1">Within <span id="reach-stats-time">30</span> min</div>
+            <div class="flex items-baseline justify-between mb-1">
+                <span class="text-2xl font-extrabold text-gray-900" id="reach-stats-stations">0</span>
+                <span class="text-xs text-gray-500">stations</span>
+            </div>
+            <div class="text-[11px] text-gray-600" id="reach-stats-detail"></div>
+        </div>
+
+        </div><!-- /panel-explore -->
+
+        <!-- ═══ POSTER PANEL ═══ -->
+        <div id="panel-poster" class="hidden">
+            <h2 class="text-xl font-extrabold mb-1 tracking-tight text-gray-900">Poster Studio</h2>
+            <p class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Transit time map</p>
+
+            <!-- City -->
+            <div class="mb-3">
+                <label class="text-xs font-medium text-gray-700 block mb-1">City</label>
+                <button id="poster-city-btn" class="w-full text-left px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm flex items-center justify-between hover:border-blue-400 transition-colors">
+                    <span id="poster-city-label">New York City</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+            </div>
+
+            <!-- Address -->
+            <div class="mb-3">
+                <label class="text-xs font-medium text-gray-700 block mb-1">Center Address</label>
+                <div id="poster-search-container" class="relative">
+                    <input id="poster-address-input" type="text"
+                        class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
+                        placeholder="Type an address..." autocomplete="off" />
+                    <ul id="poster-suggestions-list"
+                        class="hidden absolute left-0 right-0 bg-white border border-gray-300 rounded-b-lg shadow-lg max-h-40 overflow-y-auto z-[2000] text-sm"></ul>
+                </div>
+                <p id="poster-address-label" class="text-xs text-gray-500 mt-1">Grand Central Terminal</p>
+            </div>
+
+            <!-- Theme Picker -->
+            <div class="mb-3">
+                <label class="text-xs font-medium text-gray-700 block mb-2">Theme</label>
+                <div id="poster-theme-grid" class="grid grid-cols-4 gap-2"></div>
+            </div>
+
+            <!-- Aspect Ratio -->
+            <div class="mb-3">
+                <label class="text-xs font-medium text-gray-700 block mb-1">Format</label>
+                <div class="flex gap-2" id="poster-ratio-group">
+                    <button class="poster-ratio-btn active flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors" data-ratio="16:9">16:9</button>
+                    <button class="poster-ratio-btn flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors" data-ratio="3:2">3:2</button>
+                    <button class="poster-ratio-btn flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors" data-ratio="1:1">1:1</button>
+                    <button class="poster-ratio-btn flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors" data-ratio="2:3">2:3</button>
+                </div>
+            </div>
+
+            <!-- Travel Time -->
+            <div class="mb-3">
+                <label class="text-xs font-medium text-gray-700 block mb-1">Travel Time Range</label>
+                <select id="poster-max-time"
+                    class="w-full bg-white border border-gray-300 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <option value="30" selected>30 minutes</option>
+                    <option value="45">45 minutes</option>
+                    <option value="60">60 minutes</option>
+                    <option value="90">90 minutes</option>
+                </select>
+            </div>
+
+            <!-- Departure Time -->
+            <div class="mb-4">
+                <div class="flex justify-between items-center text-xs font-medium text-gray-700 mb-1">
+                    <span>Departure Time</span>
+                    <span id="poster-time-display" class="font-mono text-blue-600">8:00 AM</span>
+                </div>
+                <input type="range" id="poster-time-slider" min="0" max="47" step="1" value="16"
+                    class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+            </div>
+
+            <!-- Generate Button -->
+            <button id="poster-generate-btn"
+                class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-3 px-4 rounded-lg transition-colors">
+                Render Poster
+            </button>
+
+            <!-- Progress -->
+            <div id="poster-progress" class="hidden mt-4">
+                <div class="flex justify-between text-xs text-gray-500 mb-1">
+                    <span id="poster-progress-label">Preparing data...</span>
+                    <span id="poster-progress-pct">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div id="poster-progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Result -->
+            <div id="poster-result" class="hidden mt-4">
+                <div class="border border-gray-200 rounded-lg overflow-hidden mb-3">
+                    <img id="poster-preview" class="w-full" alt="Poster preview" />
+                </div>
+                <button id="poster-download-btn"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white text-sm font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                    Download PNG
+                </button>
+            </div>
+        </div><!-- /panel-poster -->
+
     </div>
 
     <!-- Loading Overlay -->
@@ -316,11 +459,15 @@
                     <span><span class="kbd">[</span> <span class="kbd">]</span></span>
                 </div>
                 <div class="flex justify-between">
+                    <span>Play / pause time animation</span>
+                    <span class="kbd">Space</span>
+                </div>
+                <div class="flex justify-between">
                     <span>Show this help</span>
                     <span class="kbd">?</span>
                 </div>
             </div>
-            <p class="mt-4 text-xs text-gray-500">Right-click on the map to query travel time to any point.</p>
+            <p class="mt-4 text-xs text-gray-500">Hover the map to see live travel time. Right-click for the best route from origin.</p>
         </div>
     </div>
 
