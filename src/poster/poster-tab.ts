@@ -5,6 +5,7 @@
 
 import { POSTER_THEMES } from './poster-themes';
 import { PosterRenderer } from './poster-renderer';
+import { trackEvent } from '../utils/analytics';
 import { CITIES } from '../data/city-config';
 import { formatHour } from '../utils/headway';
 import type { PosterConfig } from '../types';
@@ -294,6 +295,7 @@ export class PosterTab {
 
                 document.getElementById('poster-download-btn')!.onclick = () => {
                     if (!this.resultUrl) return;
+                    trackEvent('poster-download');
                     const a = document.createElement('a');
                     a.href = this.resultUrl;
                     a.download = `transit-topography-${config.city}-${config.themeId}-${config.aspectRatio.replace(':', 'x')}.png`;

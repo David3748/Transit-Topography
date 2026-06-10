@@ -4,7 +4,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transit Topography</title>
+    <title>Transit Topography — How far can you go by transit?</title>
+    <meta name="description"
+        content="Interactive transit isochrone maps for 32 cities. Drop a pin anywhere and see how far public transport takes you in 30 minutes — by time of day, down to the street.">
+    <meta name="theme-color" content="#fcfbf7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#191c18" media="(prefers-color-scheme: dark)">
+
+    <!-- Icons (relative — GitHub Pages serves under /Transit-Topography/) -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+    <!-- Social cards -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Transit Topography">
+    <meta property="og:title" content="Transit Topography — How far can you go by transit?">
+    <meta property="og:description"
+        content="Interactive transit isochrone maps for 32 cities. Drop a pin anywhere and see how far public transport takes you in 30 minutes.">
+    <meta property="og:url" content="https://transit-topography.netlify.app/">
+    <meta property="og:image" content="https://transit-topography.netlify.app/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Transit Topography — How far can you go by transit?">
+    <meta name="twitter:description"
+        content="Interactive transit isochrone maps for 32 cities. Drop a pin and see how far transit takes you in 30 minutes.">
+    <meta name="twitter:image" content="https://transit-topography.netlify.app/og-image.png">
 
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
@@ -329,10 +353,10 @@
 
     <!-- Loading Overlay -->
     <div id="loading-overlay"
-        class="fixed inset-0 bg-white/50 backdrop-blur-sm z-[2000] hidden flex items-center justify-center">
-        <div class="bg-white p-4 rounded-xl shadow-2xl flex flex-col items-center">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-            <span class="text-sm font-semibold text-gray-700">Fetching Transit Data...</span>
+        class="fixed inset-0 loading-backdrop z-[2000] hidden flex items-center justify-center">
+        <div class="glass-panel p-6 rounded-2xl flex flex-col items-center">
+            <div class="iso-loader" aria-hidden="true"><span></span><span></span><span></span><i></i></div>
+            <span class="text-sm font-semibold loading-text">Fetching Transit Data...</span>
         </div>
     </div>
 
@@ -472,6 +496,11 @@
     </div>
 
     <script type="module" src="/src/main.ts"></script>
+
+    <!-- GoatCounter: cookie-less analytics. Register the site code at
+         https://www.goatcounter.com to activate; harmless 404s until then. -->
+    <script data-goatcounter="https://transit-topography.goatcounter.com/count" async
+        src="https://gc.zgo.at/count.js"></script>
 
 </body>
 

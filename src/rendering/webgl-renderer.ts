@@ -4,7 +4,14 @@
  * replacing the CPU worker loop for real-time rendering performance.
  */
 
+import { BAND_STOPS, NUM_BANDS } from './color-scale';
+
 // ─── Shaders ────────────────────────────────────────────────────────────────
+
+// Palette block generated from BAND_STOPS so GPU and CPU paths share one palette
+const GLSL_STOPS = BAND_STOPS.map((c, i) =>
+    `    stops[${i}] = vec3(${(c[0] / 255).toFixed(4)}, ${(c[1] / 255).toFixed(4)}, ${(c[2] / 255).toFixed(4)});`
+).join('\n');
 
 const VERTEX_SHADER_SRC = /* glsl */`#version 300 es
 in vec2 a_position;
@@ -51,6 +58,7 @@ uniform vec2  u_origin;       // (lat, lng) of the trip origin
 uniform float u_walkSpeed;    // metres per second
 uniform float u_maxTime;      // minutes – colour scale maximum
 uniform float u_opacity;      // layer opacity 0–1
+uniform float u_revealTime;   // minutes – reveal animation frontier (< 0 = disabled)
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const float PI          = 3.14159265358979323846;
@@ -78,42 +86,57 @@ float walkingGridTime(float lat, float lng) {
     return t >= 0.0 ? t : -1.0;
 }
 
-// Maps travel time (minutes) to an RGBA colour matching the JS getColor() palette.
+// Maps travel time (minutes) to an RGBA colour matching the JS getColor() palette,
+// with anti-aliased topographic contour lines at band boundaries.
 // Returns transparent black for times >= maxTime.
+// NOTE: contains fwidth() — must be reached in uniform control flow.
 vec4 timeToColor(float minutes) {
-    if (minutes >= u_maxTime) return vec4(0.0);
-
     float frac = clamp(minutes / u_maxTime, 0.0, 1.0);
-    // 6 equal-width bands: blue→cyan→green→lime→yellow→orange
-    float pos  = frac * 5.9999;
+    float pos  = min(frac * ${NUM_BANDS}.0, ${NUM_BANDS}.0 - 1e-4);
     float band = floor(pos);
     float t    = fract(pos);
 
-    // Colour stops (normalised RGB matching the CSS colour values)
-    vec3 stops[7];
-    stops[0] = vec3(0.2314, 0.5098, 0.9647); // #3b82f6 blue
-    stops[1] = vec3(0.0235, 0.7137, 0.8314); // #06b6d4 cyan
-    stops[2] = vec3(0.0627, 0.7255, 0.5059); // #10b981 green
-    stops[3] = vec3(0.5176, 0.8000, 0.0863); // #84cc16 lime
-    stops[4] = vec3(0.9804, 0.8000, 0.0824); // #facc15 yellow
-    stops[5] = vec3(0.9765, 0.4510, 0.0863); // #f97316 orange
-    stops[6] = stops[5];                     // clamped fallback
+    vec3 stops[${NUM_BANDS + 1}];
+${GLSL_STOPS}
+    stops[${NUM_BANDS}] = stops[${NUM_BANDS - 1}]; // clamped fallback
 
     int b = int(band);
     vec3 col = mix(stops[b], stops[b + 1], t);
-    return vec4(col, u_opacity);
+
+    // ── Hypsometric depth (mirrors getColor() in color-scale.ts) ─────────
+    float sat = 1.0 + 0.15 * max(1.0 - pos, 0.0);
+    float lum = dot(col, vec3(0.299, 0.587, 0.114));
+    col = lum + (col - lum) * sat;
+    float depth = 1.0 - 0.2 * (pos / ${NUM_BANDS}.0);
+
+    // ── Topographic contours ─────────────────────────────────────────────
+    // aa ≈ band-units per screen pixel. Clamped: the time field jumps at
+    // walking-grid edges and station handoffs, where an unclamped fwidth
+    // blooms the edge detection into jagged spurious strokes.
+    float aa = clamp(fwidth(pos), 1e-4, 0.06);
+    float d  = abs(fract(pos + 0.5) - 0.5);     // distance to nearest band edge
+    float line = (1.0 - smoothstep(aa * 0.8, aa * 1.8, d)) * step(0.2, pos);
+
+    // Outer reachability edge gets the strongest stroke — the "coastline"
+    float outer = 1.0 - smoothstep(0.0, aa * 2.5, (1.0 - frac) * ${NUM_BANDS}.0);
+    float stroke = max(line * 0.85, outer);
+
+    col = mix(col, col * 0.55, stroke);
+    float alpha = min(u_opacity * depth + stroke * 0.25, 1.0);
+
+    if (minutes >= u_maxTime) return vec4(0.0);
+    return vec4(col, alpha);
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 void main() {
     // --- Obstacle check (water / buildings) ----------------------------------
+    // Resolved at the end (no early return) so fwidth() in timeToColor() is
+    // evaluated in uniform control flow across each 2×2 quad.
+    bool obstacle = false;
     if (u_hasObstacles) {
-        vec4 obs = texture(u_obstacles, v_uv);
-        if (obs.a > 0.4) {
-            fragColor = vec4(0.0);
-            return;
-        }
+        obstacle = texture(u_obstacles, v_uv).a > 0.4;
     }
 
     // --- Geographic coordinates of this fragment -----------------------------
@@ -154,7 +177,18 @@ void main() {
         if (total < minTimeSec) minTimeSec = total;
     }
 
-    fragColor = timeToColor(minTimeSec / 60.0);
+    float minutes = minTimeSec / 60.0;
+    vec4 color = timeToColor(minutes);
+
+    // --- Reveal animation: wave expands outward from the origin in time-space
+    if (u_revealTime >= 0.0) {
+        float behind = u_revealTime - minutes;       // > 0 once the wave has passed
+        color.a *= smoothstep(0.0, 1.5, behind);     // soft leading edge
+        float wave = 1.0 - smoothstep(0.0, 2.0, abs(behind - 0.75));
+        color.rgb = mix(color.rgb, vec3(1.0), wave * 0.45); // glowing wavefront
+    }
+
+    fragColor = obstacle ? vec4(0.0) : color;
 }`;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -187,6 +221,9 @@ export class WebGLRenderer {
     private obstacleTex: WebGLTexture | null = null;
     private walkingTex: WebGLTexture | null = null;
     private uniforms: Map<string, WebGLUniformLocation | null> = new Map();
+    // LINEAR filtering on float textures needs OES_texture_float_linear (missing on many mobile GPUs)
+    private floatLinear: boolean = false;
+    private lastParams: WebGLRenderParams | null = null;
 
     constructor() {
         this.offscreen = document.createElement('canvas');
@@ -212,6 +249,8 @@ export class WebGLRenderer {
 
     private _init(): void {
         const gl = this.gl!;
+
+        this.floatLinear = !!gl.getExtension('OES_texture_float_linear');
 
         const vs = this._compileShader(gl.VERTEX_SHADER, VERTEX_SHADER_SRC);
         const fs = this._compileShader(gl.FRAGMENT_SHADER, FRAGMENT_SHADER_SRC);
@@ -251,7 +290,8 @@ export class WebGLRenderer {
             'u_wgNorth', 'u_wgSouth', 'u_wgEast', 'u_wgWest',
             'u_obstacles', 'u_hasObstacles',
             'u_north', 'u_south', 'u_east', 'u_west',
-            'u_origin', 'u_walkSpeed', 'u_maxTime', 'u_opacity'
+            'u_origin', 'u_walkSpeed', 'u_maxTime', 'u_opacity',
+            'u_revealTime'
         ];
         for (const n of names) {
             this.uniforms.set(n, gl.getUniformLocation(prog, n));
@@ -335,9 +375,10 @@ export class WebGLRenderer {
         if (wg) {
             const data = new Float32Array(wg.data);
             const s = wg.size;
+            const filter = this.floatLinear ? gl.LINEAR : gl.NEAREST;
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, s, s, 0, gl.RED, gl.FLOAT, data);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
         } else {
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, new Float32Array([-1]));
         }
@@ -349,8 +390,7 @@ export class WebGLRenderer {
         if (!this.isSupported) return;
         const gl = this.gl!;
 
-        const { width, height, origin, bounds, activeStations,
-                opacity, maxTime, walkSpeedMps,
+        const { width, height, activeStations,
                 obstacleCanvas = null, walkingGrid = null } = params;
 
         // Resize offscreen canvas and viewport if needed
@@ -364,6 +404,26 @@ export class WebGLRenderer {
         this._uploadStations(activeStations);
         this._uploadObstacles(obstacleCanvas);
         this._uploadWalkingGrid(walkingGrid);
+
+        this.lastParams = params;
+        this._draw(params, -1);
+    }
+
+    /**
+     * Redraws the last-rendered frame with a reveal frontier (minutes).
+     * Cheap — skips all texture uploads, so it can run per animation frame.
+     */
+    redrawReveal(revealTime: number): void {
+        if (!this.isSupported || !this.lastParams) return;
+        this._draw(this.lastParams, revealTime);
+    }
+
+    private _draw(params: WebGLRenderParams, revealTime: number): void {
+        const gl = this.gl!;
+
+        const { origin, bounds, activeStations,
+                opacity, maxTime, walkSpeedMps,
+                obstacleCanvas = null, walkingGrid = null } = params;
 
         // Clear
         gl.clearColor(0, 0, 0, 0);
@@ -400,6 +460,7 @@ export class WebGLRenderer {
         gl.uniform1f(this.uniforms.get('u_walkSpeed')!, walkSpeedMps);
         gl.uniform1f(this.uniforms.get('u_maxTime')!,   maxTime);
         gl.uniform1f(this.uniforms.get('u_opacity')!,   opacity);
+        gl.uniform1f(this.uniforms.get('u_revealTime')!, revealTime);
 
         if (walkingGrid) {
             const wb = walkingGrid.bounds;

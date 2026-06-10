@@ -28,11 +28,11 @@
     --text-primary: #f7f4eb;
     --text-secondary: #c5c0b2;
     --text-muted: #8d887b;
-    --accent: #2dd4bf;
-    --accent-hover: #5eead4;
-    --accent-warm: #ff735c;
-    --accent-gold: #f2bc45;
-    --accent-blue: #60a5fa;
+    --accent: #21e3c4;
+    --accent-hover: #5ff0d9;
+    --accent-warm: #ff6a4d;
+    --accent-gold: #ffc23d;
+    --accent-blue: #5cb2ff;
     --border: rgba(255, 255, 255, 0.13);
     --panel-shadow: 0 22px 55px -26px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.07) inset;
 }
@@ -64,6 +64,79 @@ body {
     background-size: 88px 88px;
     mix-blend-mode: multiply;
     opacity: 0.45;
+}
+
+/* ── Branded loader: an isochrone being born ──────────────────────────── */
+.loading-backdrop {
+    background: rgba(15, 17, 14, 0.18);
+    backdrop-filter: blur(6px);
+}
+
+.iso-loader {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    margin-bottom: 12px;
+}
+
+.iso-loader span {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    border: 2px solid var(--accent);
+    opacity: 0;
+    animation: iso-ripple 1.8s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+
+.iso-loader span:nth-child(2) {
+    border-color: var(--accent-gold);
+    animation-delay: 0.6s;
+}
+
+.iso-loader span:nth-child(3) {
+    border-color: var(--accent-warm);
+    animation-delay: 1.2s;
+}
+
+.iso-loader i {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
+    border-radius: 999px;
+    background: var(--accent);
+}
+
+@keyframes iso-ripple {
+    0%   { transform: scale(0.15); opacity: 0.9; }
+    70%  { opacity: 0.35; }
+    100% { transform: scale(1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .iso-loader span {
+        animation: none;
+        opacity: 0.5;
+        transform: scale(0.6);
+    }
+}
+
+.loading-text {
+    color: var(--text-primary);
+}
+
+/* ── Micro-interactions ───────────────────────────────────────────────── */
+button:active:not(:disabled) {
+    transform: scale(0.96);
+}
+
+/* Neon backlight for transit/route lines in dark mode — one filter pass over
+   the overlay SVG (per-path drop-shadows would be too costly with thousands
+   of segments) */
+[data-theme="dark"] .leaflet-overlay-pane svg {
+    filter: drop-shadow(0 0 4px rgba(125, 180, 255, 0.45));
 }
 
 .glass-panel {
@@ -214,13 +287,14 @@ body {
     border: none !important;
     box-shadow: 0 0 0 1px var(--border), 0 10px 20px -16px rgba(0,0,0,0.55);
     overflow: hidden;
+    /* Stops at i/6 — matches BAND_STOPS interpolation in color-scale.ts */
     background: linear-gradient(90deg,
         #1b5fd6 0%,
-        #00a6a6 22%,
-        #31b76f 42%,
-        #d7aa22 62%,
-        #f18439 82%,
-        #e14f47 100%);
+        #00a6a6 16.7%,
+        #31b76f 33.3%,
+        #d7aa22 50%,
+        #f18439 66.7%,
+        #e14f47 83.3%);
 }
 /* Hide the discrete divs — gradient handles it */
 #legend-blocks > div { background-color: transparent !important; }

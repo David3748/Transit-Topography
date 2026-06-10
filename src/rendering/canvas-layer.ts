@@ -12,6 +12,7 @@ import type { BuildingMask } from '../masks/building-mask';
 import type { WalkingNetwork } from '../core/walking-network';
 import RenderWorker from './render-worker?worker';
 import { WebGLRenderer } from './webgl-renderer';
+import { trackEvent } from '../utils/analytics';
 
 interface CanvasLayerOptions {
     pixelSize?: number;
@@ -70,6 +71,10 @@ export class IsochoneCanvasLayer {
     private _previewPixelSize: number = 8;
     private _pendingFullQuality: boolean = false;
 
+    // Reveal animation (armed before a render, fires when that render lands)
+    private _revealArmed: boolean = false;
+    private _revealRaf: number = 0;
+
     // Callbacks
     private onProgress: (progress: number) => void;
     private onComplete: () => void;
@@ -93,9 +98,10 @@ export class IsochoneCanvasLayer {
     }
 
     private _initWebGL(): void {
+        // WebGL on by default; ?webgl=0 or localStorage tt_webgl='false' opts out
         const params = new URLSearchParams(window.location.search);
-        const webglOptIn = params.get('webgl') === '1' || localStorage.getItem('tt_webgl') === 'true';
-        if (!webglOptIn) {
+        const webglOptOut = params.get('webgl') === '0' || localStorage.getItem('tt_webgl') === 'false';
+        if (webglOptOut) {
             this.webglRenderer = null;
             return;
         }
@@ -104,10 +110,13 @@ export class IsochoneCanvasLayer {
             const renderer = new WebGLRenderer();
             if (renderer.isSupported) {
                 this.webglRenderer = renderer;
+            } else {
+                trackEvent('webgl-fallback');
             }
         } catch (err) {
             console.warn('WebGL renderer unavailable, using worker renderer:', err);
             this.webglRenderer = null;
+            trackEvent('webgl-fallback');
         }
     }
 
@@ -154,9 +163,87 @@ export class IsochoneCanvasLayer {
 
     private _applyWorkerResult(data: ArrayBuffer, width: number, height: number): void {
         if (!this.canvas) return;
+        cancelAnimationFrame(this._revealRaf);
         const ctx = this.canvas.getContext('2d')!;
         const imgData = new ImageData(new Uint8ClampedArray(data), width, height);
         ctx.putImageData(imgData, 0, 0);
+
+        if (this._revealArmed) {
+            this._revealArmed = false;
+            this._runCanvasWipe();
+        }
+    }
+
+    /**
+     * Arms the isochrone reveal animation for the next completed render.
+     * No-op when the user prefers reduced motion.
+     */
+    armReveal(): void {
+        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+        this._revealArmed = true;
+    }
+
+    /** WebGL reveal: animate the time frontier outward from the origin. */
+    private _runWebGLReveal(): void {
+        if (!this.webglRenderer || !this.canvas) return;
+        const ctx = this.canvas.getContext('2d')!;
+        const duration = 900;
+        const start = performance.now();
+        // Overshoot so the soft leading edge fully clears maxTime before the
+        // final frame renders with the reveal disabled.
+        const target = this.maxTime + 2;
+
+        const tick = (now: number) => {
+            if (!this.canvas) return;
+            const t = Math.min((now - start) / duration, 1);
+            const eased = 1 - Math.pow(1 - t, 3);
+            this.webglRenderer!.redrawReveal(t >= 1 ? -1 : eased * target);
+            ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            ctx.drawImage(this.webglRenderer!.getCanvas(), 0, 0);
+            if (t < 1) this._revealRaf = requestAnimationFrame(tick);
+        };
+        this._revealRaf = requestAnimationFrame(tick);
+    }
+
+    /**
+     * CPU-path reveal: radial wipe of the finished frame outward from the
+     * origin — compositing only, never recomputes the isochrone.
+     */
+    private _runCanvasWipe(): void {
+        if (!this.canvas || !this.map) return;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const src = document.createElement('canvas');
+        src.width = w;
+        src.height = h;
+        src.getContext('2d')!.drawImage(this.canvas, 0, 0);
+
+        const o = this.map.latLngToContainerPoint(this.origin);
+        const maxR = Math.hypot(Math.max(o.x, w - o.x), Math.max(o.y, h - o.y));
+        const ctx = this.canvas.getContext('2d')!;
+        const duration = 900;
+        const start = performance.now();
+
+        const tick = (now: number) => {
+            if (!this.canvas) return;
+            const t = Math.min((now - start) / duration, 1);
+            const eased = 1 - Math.pow(1 - t, 3);
+            const r = Math.max(eased * maxR, 1);
+            ctx.clearRect(0, 0, w, h);
+            ctx.drawImage(src, 0, 0);
+            if (t < 1) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'destination-in';
+                const g = ctx.createRadialGradient(o.x, o.y, Math.max(r - 60, 0), o.x, o.y, r);
+                g.addColorStop(0, 'rgba(0,0,0,1)');
+                g.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = g;
+                ctx.fillRect(0, 0, w, h);
+                ctx.restore();
+                this._revealRaf = requestAnimationFrame(tick);
+            }
+        };
+        this._revealRaf = requestAnimationFrame(tick);
     }
 
     addTo(map: L.Map): this {
@@ -232,6 +319,7 @@ export class IsochoneCanvasLayer {
         this.origin = origin;
         this.invalidateCache();
         this.lastOrigin = [...origin] as [number, number];
+        this.armReveal();
     }
 
     setNetworkTimes(times: Map<string, number>): void {
@@ -261,6 +349,7 @@ export class IsochoneCanvasLayer {
         this.dataReady = ready;
         if (ready) {
             this._lastRenderTime = 0;
+            this.armReveal();
         }
     }
 
@@ -314,6 +403,7 @@ export class IsochoneCanvasLayer {
             } catch (err) {
                 console.warn('WebGL render failed, disabling WebGL renderer:', err);
                 this.webglRenderer = null;
+                trackEvent('webgl-fallback');
                 if (this.worker) {
                     this._renderWithWorker();
                 } else {
@@ -397,6 +487,7 @@ export class IsochoneCanvasLayer {
 
     private _renderWithWebGL(): void {
         if (!this.webglRenderer || !this.map || !this.canvas) return;
+        cancelAnimationFrame(this._revealRaf);
 
         const bounds = this.map.getBounds();
         const width  = this.canvas.width;
@@ -421,10 +512,20 @@ export class IsochoneCanvasLayer {
             walkingGrid
         });
 
-        // Blit WebGL offscreen canvas → Leaflet overlay canvas
         const ctx = this.canvas.getContext('2d')!;
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(this.webglRenderer.getCanvas(), 0, 0);
+        if (this._revealArmed) {
+            // Show the very first reveal frame instead of the full isochrone
+            // to avoid a one-frame flash before the animation starts.
+            this._revealArmed = false;
+            this.webglRenderer.redrawReveal(0);
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(this.webglRenderer.getCanvas(), 0, 0);
+            this._runWebGLReveal();
+        } else {
+            // Blit WebGL offscreen canvas → Leaflet overlay canvas
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(this.webglRenderer.getCanvas(), 0, 0);
+        }
 
         this.onComplete();
     }
@@ -663,6 +764,7 @@ export class IsochoneCanvasLayer {
     }
 
     remove(): void {
+        cancelAnimationFrame(this._revealRaf);
         if (this.worker) {
             this.worker.terminate();
             this.worker = null;

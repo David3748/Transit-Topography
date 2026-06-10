@@ -8,6 +8,7 @@ import './styles/main.css';
 
 import { debounce } from './utils/debounce';
 import { normalizeQuery, getUrlParams, updateUrl } from './utils/url-params';
+import { trackEvent } from './utils/analytics';
 import { distHaversine } from './utils/haversine';
 import { IsochoneCanvasLayer } from './rendering/canvas-layer';
 import { TransitGraph } from './core/transit-graph';
@@ -583,6 +584,7 @@ class TransitTopographyApp {
         document.addEventListener('keydown', this.handleKeyboard);
 
         document.getElementById('share-btn')!.addEventListener('click', () => {
+            trackEvent('share-click');
             const url = window.location.href;
             navigator.clipboard.writeText(url).then(() => {
                 this.toast('Link copied to clipboard', 'success');
@@ -1254,7 +1256,10 @@ class TransitTopographyApp {
         const busToggle = document.getElementById('bus-toggle') as HTMLInputElement;
 
         try {
+            trackEvent('city-change');
             this.updateModeAvailability();
+            const loadingText = loading.querySelector('.loading-text');
+            if (loadingText) loadingText.textContent = `Loading ${city?.name || 'transit data'}…`;
             loading.classList.remove('hidden');
             countLabel.classList.add('hidden');
 

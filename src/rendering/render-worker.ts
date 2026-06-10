@@ -6,7 +6,7 @@
 declare const self: DedicatedWorkerGlobalScope;
 
 import { distHaversine } from '../utils/haversine';
-import { getColor } from './color-scale';
+import { getColor, getBandIndex } from './color-scale';
 import type { RenderParams, MapBounds } from '../types';
 
 // Grid-based spatial index for stations
@@ -81,6 +81,11 @@ function render(params: RenderParams): Uint8ClampedArray {
     } = params;
 
     const data = new Uint8ClampedArray(width * height * 4);
+
+    // Band index per pixel block (-1 = unreachable/transparent), for the contour pass
+    const blocksW = Math.ceil(width / pixelSize);
+    const blocksH = Math.ceil(height / pixelSize);
+    const bandGrid = new Int8Array(blocksW * blocksH).fill(-1);
 
     const stationIndex = new WorkerSpatialIndex(activeStations, 300);
 
@@ -166,6 +171,11 @@ function render(params: RenderParams): Uint8ClampedArray {
             const totalTimeMin = totalTimeSec / 60;
             const color = getColor(totalTimeMin, opacity, maxTime);
 
+            if (totalTimeMin < maxTime) {
+                bandGrid[(y / pixelSize) * blocksW + (x / pixelSize)] =
+                    getBandIndex(totalTimeMin, maxTime);
+            }
+
             for (let py = 0; py < pixelSize; py++) {
                 for (let px = 0; px < pixelSize; px++) {
                     if (y + py < height && x + px < width) {
@@ -190,7 +200,71 @@ function render(params: RenderParams): Uint8ClampedArray {
         }
     }
 
+    // Topographic contour lines at band boundaries (skipped for the coarse
+    // preview pass — 8px blocks would render chunky lines)
+    if (!params.isPreview) {
+        drawContours(data, width, height, pixelSize, bandGrid, blocksW, blocksH);
+    }
+
     return data;
+}
+
+/**
+ * Darken pixels along edges where adjacent blocks fall in different
+ * travel-time bands — the CPU equivalent of the shader's fwidth contours.
+ * Edges against unreachable area (-1) get a stronger "coastline" stroke.
+ */
+function drawContours(
+    data: Uint8ClampedArray,
+    width: number,
+    height: number,
+    pixelSize: number,
+    bandGrid: Int8Array,
+    blocksW: number,
+    blocksH: number
+): void {
+    const darken = (px: number, py: number, strong: boolean) => {
+        if (px < 0 || px >= width || py < 0 || py >= height) return;
+        const idx = 4 * (py * width + px);
+        if (data[idx + 3] === 0) return; // transparent side of a coastline
+        const f = strong ? 0.5 : 0.62;
+        data[idx]     = data[idx] * f;
+        data[idx + 1] = data[idx + 1] * f;
+        data[idx + 2] = data[idx + 2] * f;
+        data[idx + 3] = Math.min(data[idx + 3] + (strong ? 80 : 64), 255);
+    };
+
+    for (let by = 0; by < blocksH; by++) {
+        for (let bx = 0; bx < blocksW; bx++) {
+            const band = bandGrid[by * blocksW + bx];
+
+            if (bx + 1 < blocksW) {
+                const nb = bandGrid[by * blocksW + bx + 1];
+                if (nb !== band) {
+                    const strong = band === -1 || nb === -1;
+                    const xEdge = (bx + 1) * pixelSize - 1;
+                    const yEnd = Math.min((by + 1) * pixelSize, height);
+                    for (let y = by * pixelSize; y < yEnd; y++) {
+                        darken(xEdge, y, strong);
+                        darken(xEdge + 1, y, strong);
+                    }
+                }
+            }
+
+            if (by + 1 < blocksH) {
+                const nb = bandGrid[(by + 1) * blocksW + bx];
+                if (nb !== band) {
+                    const strong = band === -1 || nb === -1;
+                    const yEdge = (by + 1) * pixelSize - 1;
+                    const xEnd = Math.min((bx + 1) * pixelSize, width);
+                    for (let x = bx * pixelSize; x < xEnd; x++) {
+                        darken(x, yEdge, strong);
+                        darken(x, yEdge + 1, strong);
+                    }
+                }
+            }
+        }
+    }
 }
 
 self.onmessage = function (e: MessageEvent) {
