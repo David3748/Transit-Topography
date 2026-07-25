@@ -29,9 +29,9 @@ export class TransitFetcher {
         try {
             const resp = await fetch('https://overpass-api.de/api/interpreter', {
                 method: 'POST',
-                body: query
+                body: query,
             });
-            if (!resp.ok) throw new Error("Overpass API Error");
+            if (!resp.ok) throw new Error('Overpass API Error');
             const data = await resp.json();
             this.parseData(data);
             return this.graph.stations.length;
@@ -51,11 +51,12 @@ export class TransitFetcher {
                 try {
                     const cacheData = JSON.parse(cached);
                     // Validate cache: must have recent timestamp and well-formed data
-                    if (Date.now() - cacheData.timestamp < 24 * 60 * 60 * 1000 &&
+                    if (
+                        Date.now() - cacheData.timestamp < 24 * 60 * 60 * 1000 &&
                         cacheData.data?.nodes?.length > 0 &&
-                        Array.isArray(cacheData.data.edges)) {
+                        Array.isArray(cacheData.data.edges)
+                    ) {
                         data = cacheData.data;
-                        console.log(`Loaded ${url} from cache (${data!.nodes.length} nodes)`);
                     } else {
                         console.warn(`Cache stale or invalid for ${url}, fetching fresh`);
                         localStorage.removeItem(cacheKey);
@@ -77,10 +78,13 @@ export class TransitFetcher {
                 }
 
                 try {
-                    localStorage.setItem(cacheKey, JSON.stringify({
-                        timestamp: Date.now(),
-                        data: data
-                    }));
+                    localStorage.setItem(
+                        cacheKey,
+                        JSON.stringify({
+                            timestamp: Date.now(),
+                            data: data,
+                        })
+                    );
                 } catch {
                     console.warn('Failed to cache data (storage full?)');
                 }
@@ -102,7 +106,6 @@ export class TransitFetcher {
                 }
             });
 
-            console.log(`Static Graph loaded: ${data!.nodes.length} nodes, ${data!.edges.length} edges`);
             return data!.nodes.length;
         } catch (err) {
             console.error(err);
@@ -110,7 +113,15 @@ export class TransitFetcher {
         }
     }
 
-    private parseData(data: { elements: Array<{ type: string; id: number; lat?: number; lon?: number; members?: Array<{ type: string; ref: number }> }> }): void {
+    private parseData(data: {
+        elements: Array<{
+            type: string;
+            id: number;
+            lat?: number;
+            lon?: number;
+            members?: Array<{ type: string; ref: number }>;
+        }>;
+    }): void {
         const nodes = new Map<number, { lat: number; lon: number }>();
         const relations: Array<{ members: Array<{ type: string; ref: number }> }> = [];
 
@@ -140,7 +151,5 @@ export class TransitFetcher {
                 }
             });
         });
-
-        console.log(`Graph built: ${this.graph.nodes.size} nodes`);
     }
 }

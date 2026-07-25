@@ -22,10 +22,10 @@ Be respectful, inclusive, and professional. We welcome contributors from all bac
 ### Prerequisites
 
 - **Git** - Version control
-- **Node.js 14+** - For development tools
+- **Node.js 20+** - For development tools
 - **Python 3.8+** - For data generation scripts
 - **Modern browser** - Chrome, Firefox, Safari, or Edge
-- **LocationIQ API key** - Free at [locationiq.com](https://locationiq.com/)
+- **LocationIQ API key** (optional) - Free at [locationiq.com](https://locationiq.com/). Without it, address search falls back to Nominatim.
 
 ### Initial Setup
 
@@ -48,21 +48,21 @@ npm install
 pip install -r requirements.txt
 ```
 
-4. **Create config.js**
+4. **Configure the API key** (optional)
 
 ```bash
-cp config.template.js config.js
+cp .env.example .env
 ```
 
-Edit `config.js` and add your LocationIQ API key.
+Edit `.env` and set `VITE_LOCATIONIQ_KEY`.
 
-5. **Start local server**
+5. **Start the dev server**
 
 ```bash
-npm start
+npm run dev
 ```
 
-Visit `http://localhost:8000` to see the app.
+Visit the printed URL (default `http://localhost:5173`) to see the app.
 
 ## Development Workflow
 
@@ -89,14 +89,19 @@ Follow the [Code Style](#code-style) guidelines below.
 3. **Test your changes**
 
 ```bash
-# Run linter
-npm run lint
+# Unit tests (Vitest)
+npm run test
 
-# Format code
+# Linter and formatter
+npm run lint
 npm run format
 
+# Data manifest + routing integration checks
+npm run validate:data
+npm run test:routing
+
 # Manual testing in browser
-npm start
+npm run dev
 ```
 
 4. **Commit your changes**
@@ -191,7 +196,9 @@ Locate an official GTFS feed for the transit agency. Good sources:
 
 ### Step 2: Add to Configuration
 
-Edit `cities_config.json`:
+Register the city in **both** places:
+
+1. `cities_config.json` (used by the Python data-generation pipeline):
 
 ```json
 "city_code": {
@@ -203,6 +210,10 @@ Edit `cities_config.json`:
   "flag": "🇺🇸"
 }
 ```
+
+2. `src/data/city-config.ts` (used by the web app) — add a `CITIES` entry with
+   the generated `files: ['transit_data/city_code.json']`, and update
+   `src/data/city-manifest.ts` feature flags if the city has bus/walking data.
 
 **Parameters:**
 - `city_code` - Unique identifier (lowercase, underscores)
@@ -285,18 +296,27 @@ Test in multiple browsers:
 
 ### Automated Testing
 
-We're working on adding automated tests. For now, manual testing is required.
+- **Unit tests** — `npm run test` (Vitest, `tests/unit/`). Add tests next to any
+  new pure logic in `src/`.
+- **Data validation** — `npm run validate:data` checks `src/data/city-config.ts`
+  against the checked-in `transit_data` files.
+- **Routing integration** — `npm run test:routing` builds real city graphs and
+  sanity-checks routing invariants.
+- **CI** — every pull request runs format check, lint, typecheck, unit tests,
+  both data checks, and a production build (`.github/workflows/ci.yml`).
 
 ## Submitting Changes
 
 ### Pull Request Guidelines
 
 **Before submitting:**
-1. Run `npm run lint` - No errors
-2. Run `npm run format` - Code is formatted
-3. Test thoroughly in browser
-4. Update documentation if needed
-5. Add screenshots for visual changes
+1. Run `npm run format` - Code is formatted
+2. Run `npm run lint` - No errors
+3. Run `npm run test` - Unit tests pass
+4. Run `npm run build` - Full pipeline passes (same as CI)
+5. Test thoroughly in browser
+6. Update documentation if needed
+7. Add screenshots for visual changes
 
 **PR Description should include:**
 - What changed and why

@@ -1,507 +1,916 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Transit Topography — How far can you go by transit?</title>
+        <meta
+            name="description"
+            content="Interactive transit isochrone maps for 28 cities. Drop a pin anywhere and see how far public transport takes you in 30 minutes — by time of day, down to the street."
+        />
+        <meta name="theme-color" content="#fcfbf7" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#191c18" media="(prefers-color-scheme: dark)" />
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transit Topography — How far can you go by transit?</title>
-    <meta name="description"
-        content="Interactive transit isochrone maps for 32 cities. Drop a pin anywhere and see how far public transport takes you in 30 minutes — by time of day, down to the street.">
-    <meta name="theme-color" content="#fcfbf7" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#191c18" media="(prefers-color-scheme: dark)">
+        <!-- Icons (relative — GitHub Pages serves under /Transit-Topography/) -->
+        <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+        <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+        <link rel="manifest" href="site.webmanifest" />
+        <meta name="color-scheme" content="light dark" />
 
-    <!-- Icons (relative — GitHub Pages serves under /Transit-Topography/) -->
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+        <!-- Resource hints for third-party origins used at runtime -->
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin />
+        <link rel="dns-prefetch" href="https://b.basemaps.cartocdn.com" />
+        <link rel="dns-prefetch" href="https://c.basemaps.cartocdn.com" />
+        <link rel="dns-prefetch" href="https://d.basemaps.cartocdn.com" />
+        <link rel="preconnect" href="https://nominatim.openstreetmap.org" crossorigin />
 
-    <!-- Social cards -->
-    <meta property="og:type" content="website">
-    <meta property="og:site_name" content="Transit Topography">
-    <meta property="og:title" content="Transit Topography — How far can you go by transit?">
-    <meta property="og:description"
-        content="Interactive transit isochrone maps for 32 cities. Drop a pin anywhere and see how far public transport takes you in 30 minutes.">
-    <meta property="og:url" content="https://transit-topography.netlify.app/">
-    <meta property="og:image" content="https://transit-topography.netlify.app/og-image.png">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Transit Topography — How far can you go by transit?">
-    <meta name="twitter:description"
-        content="Interactive transit isochrone maps for 32 cities. Drop a pin and see how far transit takes you in 30 minutes.">
-    <meta name="twitter:image" content="https://transit-topography.netlify.app/og-image.png">
+        <!-- Social cards -->
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Transit Topography" />
+        <meta property="og:title" content="Transit Topography — How far can you go by transit?" />
+        <meta
+            property="og:description"
+            content="Interactive transit isochrone maps for 28 cities. Drop a pin anywhere and see how far public transport takes you in 30 minutes."
+        />
+        <meta property="og:url" content="https://transit-topography.netlify.app/" />
+        <meta property="og:image" content="https://transit-topography.netlify.app/og-image.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Transit Topography — How far can you go by transit?" />
+        <meta
+            name="twitter:description"
+            content="Interactive transit isochrone maps for 28 cities. Drop a pin and see how far transit takes you in 30 minutes."
+        />
+        <meta name="twitter:image" content="https://transit-topography.netlify.app/og-image.png" />
 
-    <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-</head>
+        <!-- Fonts -->
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap"
+            rel="stylesheet"
+        />
+    </head>
 
-<body class="bg-gray-50 text-gray-900 overflow-hidden">
-    <!-- Skip to main content link for screen readers -->
-    <a href="#map" class="sr-only focus:not-sr-only">Skip to map</a>
+    <body class="bg-gray-50 text-gray-900 overflow-hidden">
+        <!-- Skip to main content link for screen readers -->
+        <a href="#map" class="sr-only focus:not-sr-only">Skip to map</a>
 
-    <!-- Map Container -->
-    <div id="map" role="application" aria-label="Interactive transit map"></div>
+        <!-- Map Container -->
+        <div id="map" role="application" aria-label="Interactive transit map"></div>
 
-    <!-- UI Overlay -->
-    <div class="absolute top-4 left-4 z-[1000] glass-panel p-6 rounded-2xl max-w-sm transition-all duration-300 control-panel-mobile" role="region" aria-label="Transit isochrone controls">
+        <!-- UI Overlay -->
+        <div
+            class="absolute top-4 left-4 z-[1000] glass-panel p-6 rounded-2xl max-w-sm transition-all duration-300 control-panel-mobile"
+            role="region"
+            aria-label="Transit isochrone controls"
+        >
+            <div class="app-brand">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="app-brand-mark" aria-hidden="true"></div>
+                    <div class="min-w-0">
+                        <div class="app-brand-title">Transit Topography</div>
+                        <div class="app-brand-subtitle">Public transport reach</div>
+                    </div>
+                </div>
+                <span
+                    id="service-dot"
+                    class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style="background-color: #22c55e"
+                    title="Service level"
+                ></span>
+            </div>
 
-        <div class="app-brand">
-            <div class="flex items-center gap-3 min-w-0">
-                <div class="app-brand-mark" aria-hidden="true"></div>
-                <div class="min-w-0">
-                    <div class="app-brand-title">Transit Topography</div>
-                    <div class="app-brand-subtitle">Public transport reach</div>
+            <!-- Tab Bar -->
+            <div
+                id="mode-tabs"
+                class="flex mb-4 -mx-6 -mt-6 px-4 pt-3 border-b"
+                style="border-color: var(--border)"
+            >
+                <button
+                    id="tab-explore"
+                    class="tab-btn tab-active px-4 py-2 text-sm font-semibold border-b-2 transition-colors"
+                    style="border-color: var(--accent); color: var(--accent)"
+                >
+                    Map
+                </button>
+                <button
+                    id="tab-poster"
+                    class="tab-btn px-4 py-2 text-sm font-semibold border-b-2 border-transparent transition-colors ml-2"
+                    style="color: var(--text-muted)"
+                >
+                    Poster
+                </button>
+            </div>
+
+            <!-- ═══ EXPLORE PANEL ═══ -->
+            <div id="panel-explore">
+                <h1 class="text-2xl font-extrabold mb-1 tracking-tight text-gray-900">
+                    <button
+                        id="city-title-btn"
+                        class="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
+                        title="Click to change city"
+                        aria-label="Change city, currently New York City"
+                        aria-haspopup="dialog"
+                    >
+                        <span id="city-title" aria-live="polite">New York City</span>
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-4 w-4 opacity-60"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            aria-hidden="true"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M19 9l-7 7-7-7"
+                            />
+                        </svg>
+                    </button>
+                </h1>
+                <p class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Reach map</p>
+
+                <div class="mb-4">
+                    <div class="flex justify-between text-sm font-semibold mb-1 text-gray-700">
+                        <span>Current Origin</span>
+                    </div>
+                    <!-- Added cursor-pointer and hover effect to indicate interactivity -->
+                    <div
+                        id="origin-label"
+                        class="text-lg font-bold text-blue-600 truncate cursor-pointer hover:bg-blue-50 hover:underline rounded px-1 -ml-1 transition-colors"
+                        title="Click to change address"
+                    >
+                        Grand Central Terminal
+                    </div>
+
+                    <!-- Recent searches chips -->
+                    <div id="recent-searches" class="hidden"></div>
+
+                    <!-- Search Container (Relative for dropdown positioning) -->
+                    <div id="search-container" class="relative hidden">
+                        <input
+                            id="origin-input"
+                            type="text"
+                            class="w-full text-lg font-bold text-gray-900 bg-white border border-blue-500 rounded-t px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                            placeholder="Type an address..."
+                            autocomplete="off"
+                            aria-label="Search for address or location"
+                            aria-autocomplete="list"
+                            aria-controls="suggestions-list"
+                            aria-expanded="false"
+                        />
+                        <!-- Suggestions Dropdown -->
+                        <ul
+                            id="suggestions-list"
+                            role="listbox"
+                            class="hidden absolute left-0 right-0 bg-white border-x border-b border-blue-500 rounded-b shadow-lg max-h-60 overflow-y-auto z-[2000]"
+                        ></ul>
+                    </div>
+
+                    <p class="sr-only">
+                        Ctrl+click the map to move origin. Right-click for travel time.
+                    </p>
+                </div>
+
+                <div class="mb-6">
+                    <div class="flex justify-between items-center text-xs mb-2 text-gray-500">
+                        <span>Travel Time Zones</span>
+                        <select
+                            id="max-time-select"
+                            class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            aria-label="Maximum travel time"
+                        >
+                            <option value="15">15 min</option>
+                            <option value="30" selected>30 min</option>
+                            <option value="45">45 min</option>
+                            <option value="60">60 min</option>
+                            <option value="90">90 min</option>
+                        </select>
+                    </div>
+
+                    <!-- Discrete Legend Blocks -->
+                    <div
+                        id="legend-blocks"
+                        class="flex h-4 w-full rounded-md overflow-hidden mb-1 border border-gray-200"
+                    >
+                        <div class="flex-1" style="background-color: rgb(59, 130, 246)"></div>
+                        <div class="flex-1" style="background-color: rgb(6, 182, 212)"></div>
+                        <div class="flex-1" style="background-color: rgb(16, 185, 129)"></div>
+                        <div class="flex-1" style="background-color: rgb(132, 204, 22)"></div>
+                        <div class="flex-1" style="background-color: rgb(250, 204, 21)"></div>
+                        <div class="flex-1" style="background-color: rgb(249, 115, 22)"></div>
+                    </div>
+
+                    <div
+                        id="legend-labels"
+                        class="flex justify-between text-[10px] text-gray-500 font-mono px-1"
+                    >
+                        <span>0</span>
+                        <span>5</span>
+                        <span>10</span>
+                        <span>15</span>
+                        <span>20</span>
+                        <span>25</span>
+                        <span>30m</span>
+                    </div>
+                </div>
+
+                <!-- Departure Time -->
+                <div class="mb-4">
+                    <div
+                        class="flex justify-between items-center text-xs font-medium text-gray-700 mb-1"
+                    >
+                        <span id="time-mode-label">Departure Time</span>
+                        <span id="time-display" class="font-mono text-blue-600">8:00 AM</span>
+                    </div>
+                    <div
+                        class="mb-2 grid grid-cols-2 gap-1 rounded bg-gray-100 p-1"
+                        role="group"
+                        aria-label="Routing direction"
+                    >
+                        <button
+                            id="depart-mode-btn"
+                            type="button"
+                            class="routing-mode-btn active"
+                            data-direction="depart"
+                            aria-pressed="true"
+                        >
+                            Depart
+                        </button>
+                        <button
+                            id="arrive-mode-btn"
+                            type="button"
+                            class="routing-mode-btn"
+                            data-direction="arrive"
+                            aria-pressed="false"
+                        >
+                            Arrive
+                        </button>
+                    </div>
+                    <div class="time-row">
+                        <button
+                            id="time-play-btn"
+                            type="button"
+                            title="Animate through the day (Space)"
+                            aria-label="Play time animation"
+                        >
+                            <svg
+                                id="time-play-icon"
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="h-3 w-3"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                            >
+                                <path d="M6 4l10 6-10 6V4z" />
+                            </svg>
+                            <svg
+                                id="time-pause-icon"
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="h-3 w-3 hidden"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                            >
+                                <path d="M6 4h3v12H6zM11 4h3v12h-3z" />
+                            </svg>
+                        </button>
+                        <input
+                            type="range"
+                            id="time-slider"
+                            min="0"
+                            max="47"
+                            step="1"
+                            value="16"
+                            class="h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            aria-label="Time of day"
+                            aria-valuemin="0"
+                            aria-valuemax="47"
+                            aria-valuenow="16"
+                            aria-valuetext="8:00 AM"
+                        />
+                    </div>
+                    <div class="flex items-center gap-1.5 mt-1">
+                        <span id="service-label" class="text-[10px] text-gray-500"
+                            >AM Rush Hour · ~3 min frequency</span
+                        >
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label for="opacity-slider" class="text-xs font-medium text-gray-700"
+                            >Opacity</label
+                        >
+                        <input
+                            type="range"
+                            id="opacity-slider"
+                            min="0.1"
+                            max="0.9"
+                            step="0.1"
+                            value="0.6"
+                            class="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            aria-label="Isochrone opacity"
+                            aria-valuemin="0.1"
+                            aria-valuemax="0.9"
+                            aria-valuenow="0.6"
+                        />
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <label for="res-select" class="text-xs font-medium text-gray-700"
+                            >Resolution</label
+                        >
+                        <select
+                            id="res-select"
+                            class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            aria-label="Rendering quality"
+                        >
+                            <option value="6">Low (Fast)</option>
+                            <option value="3" selected>Medium</option>
+                            <option value="2">High</option>
+                            <option value="1">Ultra (Slow)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mt-6 pt-4 border-t border-gray-200">
+                    <div class="mt-3">
+                        <!-- Hidden city select for JS compatibility -->
+                        <select id="city-select" class="hidden">
+                            <option value="nyc">New York City</option>
+                        </select>
+
+                        <!-- Bus Toggle -->
+                        <div class="mb-2 flex items-center">
+                            <input
+                                id="bus-toggle"
+                                type="checkbox"
+                                class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label for="bus-toggle" class="ml-2 text-xs font-medium text-gray-700"
+                                >Include Buses</label
+                            >
+                        </div>
+
+                        <!-- Station Toggle -->
+                        <div class="mb-2 flex items-center">
+                            <input
+                                id="stations-toggle"
+                                type="checkbox"
+                                class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label
+                                for="stations-toggle"
+                                class="ml-2 text-xs font-medium text-gray-700"
+                                >Show Stations</label
+                            >
+                        </div>
+
+                        <!-- Lines Toggle -->
+                        <div class="mb-2 flex items-center">
+                            <input
+                                id="lines-toggle"
+                                type="checkbox"
+                                class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label for="lines-toggle" class="ml-2 text-xs font-medium text-gray-700"
+                                >Show Transit Lines</label
+                            >
+                        </div>
+
+                        <!-- Street Network Walking Toggle (only for supported cities) -->
+                        <div id="walking-network-container" class="mb-3 flex items-center hidden">
+                            <input
+                                id="walking-network-toggle"
+                                type="checkbox"
+                                checked
+                                class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label
+                                for="walking-network-toggle"
+                                class="ml-2 text-xs font-medium text-gray-700"
+                                >Street Network</label
+                            >
+                            <span
+                                id="walking-network-cities"
+                                class="ml-1 text-[10px] text-gray-400"
+                            ></span>
+                        </div>
+
+                        <button
+                            id="fetch-stations-btn"
+                            class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                            >
+                                <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                />
+                            </svg>
+                            Refresh Network
+                        </button>
+                        <p
+                            id="station-count"
+                            class="text-[10px] text-gray-400 mt-1 text-center hidden"
+                        >
+                            Loaded 0 stations
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Reachability Stats -->
+                <div id="reach-stats" class="hidden mt-3">
+                    <div
+                        class="text-[10px] uppercase tracking-widest text-gray-500 font-semibold mb-1"
+                    >
+                        Within <span id="reach-stats-time">30</span> min
+                    </div>
+                    <div class="flex items-baseline justify-between mb-1">
+                        <span
+                            class="text-2xl font-extrabold text-gray-900"
+                            id="reach-stats-stations"
+                            >0</span
+                        >
+                        <span class="text-xs text-gray-500">stations</span>
+                    </div>
+                    <div class="text-[11px] text-gray-600" id="reach-stats-detail"></div>
                 </div>
             </div>
-            <span id="service-dot" class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: #22c55e;" title="Service level"></span>
+            <!-- /panel-explore -->
+
+            <!-- ═══ POSTER PANEL ═══ -->
+            <div id="panel-poster" class="hidden">
+                <h2 class="text-xl font-extrabold mb-1 tracking-tight text-gray-900">
+                    Poster Studio
+                </h2>
+                <p class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Transit time map</p>
+
+                <!-- City -->
+                <div class="mb-3">
+                    <label class="text-xs font-medium text-gray-700 block mb-1">City</label>
+                    <button
+                        id="poster-city-btn"
+                        class="w-full text-left px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm flex items-center justify-between hover:border-blue-400 transition-colors"
+                    >
+                        <span id="poster-city-label">New York City</span>
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-3 w-3 opacity-50"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M19 9l-7 7-7-7"
+                            />
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Address -->
+                <div class="mb-3">
+                    <label class="text-xs font-medium text-gray-700 block mb-1"
+                        >Center Address</label
+                    >
+                    <div id="poster-search-container" class="relative">
+                        <input
+                            id="poster-address-input"
+                            type="text"
+                            class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
+                            placeholder="Type an address..."
+                            autocomplete="off"
+                            aria-label="Poster center address"
+                        />
+                        <ul
+                            id="poster-suggestions-list"
+                            role="listbox"
+                            class="hidden absolute left-0 right-0 bg-white border border-gray-300 rounded-b-lg shadow-lg max-h-40 overflow-y-auto z-[2000] text-sm"
+                        ></ul>
+                    </div>
+                    <p id="poster-address-label" class="text-xs text-gray-500 mt-1">
+                        Grand Central Terminal
+                    </p>
+                </div>
+
+                <!-- Theme Picker -->
+                <div class="mb-3">
+                    <label class="text-xs font-medium text-gray-700 block mb-2">Theme</label>
+                    <div id="poster-theme-grid" class="grid grid-cols-4 gap-2"></div>
+                </div>
+
+                <!-- Aspect Ratio -->
+                <div class="mb-3">
+                    <label class="text-xs font-medium text-gray-700 block mb-1">Format</label>
+                    <div class="flex gap-2" id="poster-ratio-group">
+                        <button
+                            class="poster-ratio-btn active flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors"
+                            data-ratio="16:9"
+                        >
+                            16:9
+                        </button>
+                        <button
+                            class="poster-ratio-btn flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors"
+                            data-ratio="3:2"
+                        >
+                            3:2
+                        </button>
+                        <button
+                            class="poster-ratio-btn flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors"
+                            data-ratio="1:1"
+                        >
+                            1:1
+                        </button>
+                        <button
+                            class="poster-ratio-btn flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors"
+                            data-ratio="2:3"
+                        >
+                            2:3
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Travel Time -->
+                <div class="mb-3">
+                    <label class="text-xs font-medium text-gray-700 block mb-1"
+                        >Travel Time Range</label
+                    >
+                    <select
+                        id="poster-max-time"
+                        class="w-full bg-white border border-gray-300 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                        <option value="30" selected>30 minutes</option>
+                        <option value="45">45 minutes</option>
+                        <option value="60">60 minutes</option>
+                        <option value="90">90 minutes</option>
+                    </select>
+                </div>
+
+                <!-- Departure Time -->
+                <div class="mb-4">
+                    <div
+                        class="flex justify-between items-center text-xs font-medium text-gray-700 mb-1"
+                    >
+                        <span>Departure Time</span>
+                        <span id="poster-time-display" class="font-mono text-blue-600"
+                            >8:00 AM</span
+                        >
+                    </div>
+                    <input
+                        type="range"
+                        id="poster-time-slider"
+                        min="0"
+                        max="47"
+                        step="1"
+                        value="16"
+                        class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        aria-label="Poster departure time"
+                    />
+                </div>
+
+                <!-- Generate Button -->
+                <button
+                    id="poster-generate-btn"
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-3 px-4 rounded-lg transition-colors"
+                >
+                    Render Poster
+                </button>
+
+                <!-- Progress -->
+                <div id="poster-progress" class="hidden mt-4">
+                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                        <span id="poster-progress-label">Preparing data...</span>
+                        <span id="poster-progress-pct">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div
+                            id="poster-progress-bar"
+                            class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style="width: 0%"
+                        ></div>
+                    </div>
+                </div>
+
+                <!-- Result -->
+                <div id="poster-result" class="hidden mt-4">
+                    <div class="border border-gray-200 rounded-lg overflow-hidden mb-3">
+                        <img id="poster-preview" class="w-full" alt="Poster preview" />
+                    </div>
+                    <button
+                        id="poster-download-btn"
+                        class="w-full bg-green-600 hover:bg-green-700 text-white text-sm font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-4 w-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                            />
+                        </svg>
+                        Download PNG
+                    </button>
+                </div>
+            </div>
+            <!-- /panel-poster -->
         </div>
 
-        <!-- Tab Bar -->
-        <div id="mode-tabs" class="flex mb-4 -mx-6 -mt-6 px-4 pt-3 border-b" style="border-color: var(--border);">
-            <button id="tab-explore" class="tab-btn tab-active px-4 py-2 text-sm font-semibold border-b-2 transition-colors" style="border-color: var(--accent); color: var(--accent);">
-                Map
-            </button>
-            <button id="tab-poster" class="tab-btn px-4 py-2 text-sm font-semibold border-b-2 border-transparent transition-colors ml-2" style="color: var(--text-muted);">
-                Poster
-            </button>
+        <!-- Loading Overlay -->
+        <div
+            id="loading-overlay"
+            class="fixed inset-0 loading-backdrop z-[2000] hidden flex items-center justify-center"
+        >
+            <div class="glass-panel p-6 rounded-2xl flex flex-col items-center">
+                <div class="iso-loader" aria-hidden="true">
+                    <span></span><span></span><span></span><i></i>
+                </div>
+                <span class="text-sm font-semibold loading-text">Fetching Transit Data...</span>
+            </div>
         </div>
 
-        <!-- ═══ EXPLORE PANEL ═══ -->
-        <div id="panel-explore">
+        <!-- Progress Overlay (for rendering) -->
+        <div
+            id="progress-overlay"
+            class="fixed bottom-4 right-4 z-[2000] hidden glass-panel px-4 py-2 rounded-lg"
+        >
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-blue-600 rounded-full progress-pulse"></div>
+                <span class="progress-text text-sm font-medium text-gray-700">Computing...</span>
+            </div>
+        </div>
 
-        <h1 class="text-2xl font-extrabold mb-1 tracking-tight text-gray-900">
-            <button id="city-title-btn" class="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1" title="Click to change city" aria-label="Change city, currently New York City" aria-haspopup="dialog">
-                <span id="city-title" aria-live="polite">New York City</span>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        <!-- Bottom Left Buttons -->
+        <div
+            class="fixed bottom-4 left-4 z-[1000] flex gap-2 bottom-buttons-mobile"
+            role="toolbar"
+            aria-label="Map actions"
+        >
+            <!-- Share Button -->
+            <button
+                id="share-btn"
+                class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                title="Copy shareable link"
+                aria-label="Share current view"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
+                    <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                    />
+                </svg>
+                Share
+            </button>
+
+            <!-- Export Button -->
+            <button
+                id="export-btn"
+                class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                title="Export as PNG (E)"
+                aria-label="Export map as PNG image"
+                aria-keyshortcuts="E"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
+                    <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                    />
+                </svg>
+                Export
+            </button>
+
+            <!-- GeoJSON Export Button -->
+            <button
+                id="export-geojson-btn"
+                class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                title="Export isochrone contours as GeoJSON"
+                aria-label="Export isochrone contours as GeoJSON"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
+                    <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                    />
+                </svg>
+                GeoJSON
+            </button>
+
+            <!-- Dark Mode Toggle -->
+            <button
+                id="theme-btn"
+                class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                title="Toggle dark mode (D)"
+                aria-label="Toggle dark mode"
+                aria-keyshortcuts="D"
+                aria-pressed="false"
+            >
+                <svg
+                    id="theme-icon-light"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
+                    <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                    />
+                </svg>
+                <svg
+                    id="theme-icon-dark"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-4 w-4 hidden"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
+                    <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                    />
                 </svg>
             </button>
-        </h1>
-        <p class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Reach map</p>
 
-        <div class="mb-4">
-            <div class="flex justify-between text-sm font-semibold mb-1 text-gray-700">
-                <span>Current Origin</span>
-            </div>
-            <!-- Added cursor-pointer and hover effect to indicate interactivity -->
-            <div id="origin-label"
-                class="text-lg font-bold text-blue-600 truncate cursor-pointer hover:bg-blue-50 hover:underline rounded px-1 -ml-1 transition-colors"
-                title="Click to change address">
-                Grand Central Terminal
-            </div>
-
-            <!-- Recent searches chips -->
-            <div id="recent-searches" class="hidden"></div>
-
-            <!-- Search Container (Relative for dropdown positioning) -->
-            <div id="search-container" class="relative hidden">
-                <input id="origin-input" type="text"
-                    class="w-full text-lg font-bold text-gray-900 bg-white border border-blue-500 rounded-t px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                    placeholder="Type an address..." autocomplete="off"
-                    aria-label="Search for address or location"
-                    aria-autocomplete="list"
-                    aria-controls="suggestions-list" />
-                <!-- Suggestions Dropdown -->
-                <ul id="suggestions-list"
-                    class="hidden absolute left-0 right-0 bg-white border-x border-b border-blue-500 rounded-b shadow-lg max-h-60 overflow-y-auto z-[2000]">
-                </ul>
-            </div>
-
-            <p class="sr-only">Ctrl+click the map to move origin. Right-click for travel time.</p>
-        </div>
-
-        <div class="mb-6">
-            <div class="flex justify-between items-center text-xs mb-2 text-gray-500">
-                <span>Travel Time Zones</span>
-                <select id="max-time-select"
-                    class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    aria-label="Maximum travel time">
-                    <option value="15">15 min</option>
-                    <option value="30" selected>30 min</option>
-                    <option value="45">45 min</option>
-                    <option value="60">60 min</option>
-                    <option value="90">90 min</option>
-                </select>
-            </div>
-
-            <!-- Discrete Legend Blocks -->
-            <div id="legend-blocks" class="flex h-4 w-full rounded-md overflow-hidden mb-1 border border-gray-200">
-                <div class="flex-1" style="background-color: rgb(59, 130, 246);"></div>
-                <div class="flex-1" style="background-color: rgb(6, 182, 212);"></div>
-                <div class="flex-1" style="background-color: rgb(16, 185, 129);"></div>
-                <div class="flex-1" style="background-color: rgb(132, 204, 22);"></div>
-                <div class="flex-1" style="background-color: rgb(250, 204, 21);"></div>
-                <div class="flex-1" style="background-color: rgb(249, 115, 22);"></div>
-            </div>
-
-            <div id="legend-labels" class="flex justify-between text-[10px] text-gray-500 font-mono px-1">
-                <span>0</span>
-                <span>5</span>
-                <span>10</span>
-                <span>15</span>
-                <span>20</span>
-                <span>25</span>
-                <span>30m</span>
-            </div>
-        </div>
-
-        <!-- Departure Time -->
-        <div class="mb-4">
-            <div class="flex justify-between items-center text-xs font-medium text-gray-700 mb-1">
-                <span id="time-mode-label">Departure Time</span>
-                <span id="time-display" class="font-mono text-blue-600">8:00 AM</span>
-            </div>
-            <div class="mb-2 grid grid-cols-2 gap-1 rounded bg-gray-100 p-1" role="group" aria-label="Routing direction">
-                <button id="depart-mode-btn" type="button" class="routing-mode-btn active" data-direction="depart" aria-pressed="true">Depart</button>
-                <button id="arrive-mode-btn" type="button" class="routing-mode-btn" data-direction="arrive" aria-pressed="false">Arrive</button>
-            </div>
-            <div class="time-row">
-                <button id="time-play-btn" type="button" title="Animate through the day (Space)" aria-label="Play time animation">
-                    <svg id="time-play-icon" xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path d="M6 4l10 6-10 6V4z"/></svg>
-                    <svg id="time-pause-icon" xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 hidden" viewBox="0 0 20 20" fill="currentColor"><path d="M6 4h3v12H6zM11 4h3v12h-3z"/></svg>
-                </button>
-                <input type="range" id="time-slider" min="0" max="47" step="1" value="16"
-                    class="h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
-            </div>
-            <div class="flex items-center gap-1.5 mt-1">
-                <span id="service-label" class="text-[10px] text-gray-500">AM Rush Hour · ~3 min frequency</span>
-            </div>
-        </div>
-
-        <div class="space-y-3">
-            <div class="flex items-center justify-between">
-                <label for="opacity-slider" class="text-xs font-medium text-gray-700">Opacity</label>
-                <input type="range" id="opacity-slider" min="0.1" max="0.9" step="0.1" value="0.6"
-                    class="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                    aria-label="Isochrone opacity"
-                    aria-valuemin="0.1"
-                    aria-valuemax="0.9"
-                    aria-valuenow="0.6">
-            </div>
-            <div class="flex items-center justify-between">
-                <label for="res-select" class="text-xs font-medium text-gray-700">Resolution</label>
-                <select id="res-select"
-                    class="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    aria-label="Rendering quality">
-                    <option value="6">Low (Fast)</option>
-                    <option value="3" selected>Medium</option>
-                    <option value="2">High</option>
-                    <option value="1">Ultra (Slow)</option>
-                </select>
-            </div>
-        </div>
-
-        <div class="mt-6 pt-4 border-t border-gray-200">
-            <div class="mt-3">
-                <!-- Hidden city select for JS compatibility -->
-                <select id="city-select" class="hidden">
-                    <option value="nyc">New York City</option>
-                    </select>
-
-                <!-- Bus Toggle -->
-                <div class="mb-2 flex items-center">
-                    <input id="bus-toggle" type="checkbox"
-                        class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
-                    <label for="bus-toggle" class="ml-2 text-xs font-medium text-gray-700">Include Buses</label>
-                </div>
-
-                <!-- Station Toggle -->
-                <div class="mb-2 flex items-center">
-                    <input id="stations-toggle" type="checkbox"
-                        class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
-                    <label for="stations-toggle" class="ml-2 text-xs font-medium text-gray-700">Show Stations</label>
-                </div>
-
-                <!-- Lines Toggle -->
-                <div class="mb-2 flex items-center">
-                    <input id="lines-toggle" type="checkbox"
-                        class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
-                    <label for="lines-toggle" class="ml-2 text-xs font-medium text-gray-700">Show Transit Lines</label>
-                </div>
-
-                <!-- Street Network Walking Toggle (only for supported cities) -->
-                <div id="walking-network-container" class="mb-3 flex items-center hidden">
-                    <input id="walking-network-toggle" type="checkbox" checked
-                        class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
-                    <label for="walking-network-toggle" class="ml-2 text-xs font-medium text-gray-700">Street Network</label>
-                    <span id="walking-network-cities" class="ml-1 text-[10px] text-gray-400"></span>
-                </div>
-
-                <button id="fetch-stations-btn"
-                    class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Refresh Network
-                </button>
-                <p id="station-count" class="text-[10px] text-gray-400 mt-1 text-center hidden">Loaded 0 stations</p>
-            </div>
-        </div>
-
-        <!-- Reachability Stats -->
-        <div id="reach-stats" class="hidden mt-3">
-            <div class="text-[10px] uppercase tracking-widest text-gray-500 font-semibold mb-1">Within <span id="reach-stats-time">30</span> min</div>
-            <div class="flex items-baseline justify-between mb-1">
-                <span class="text-2xl font-extrabold text-gray-900" id="reach-stats-stations">0</span>
-                <span class="text-xs text-gray-500">stations</span>
-            </div>
-            <div class="text-[11px] text-gray-600" id="reach-stats-detail"></div>
-        </div>
-
-        </div><!-- /panel-explore -->
-
-        <!-- ═══ POSTER PANEL ═══ -->
-        <div id="panel-poster" class="hidden">
-            <h2 class="text-xl font-extrabold mb-1 tracking-tight text-gray-900">Poster Studio</h2>
-            <p class="text-xs text-gray-500 mb-4 uppercase tracking-widest">Transit time map</p>
-
-            <!-- City -->
-            <div class="mb-3">
-                <label class="text-xs font-medium text-gray-700 block mb-1">City</label>
-                <button id="poster-city-btn" class="w-full text-left px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm flex items-center justify-between hover:border-blue-400 transition-colors">
-                    <span id="poster-city-label">New York City</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                </button>
-            </div>
-
-            <!-- Address -->
-            <div class="mb-3">
-                <label class="text-xs font-medium text-gray-700 block mb-1">Center Address</label>
-                <div id="poster-search-container" class="relative">
-                    <input id="poster-address-input" type="text"
-                        class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
-                        placeholder="Type an address..." autocomplete="off" />
-                    <ul id="poster-suggestions-list"
-                        class="hidden absolute left-0 right-0 bg-white border border-gray-300 rounded-b-lg shadow-lg max-h-40 overflow-y-auto z-[2000] text-sm"></ul>
-                </div>
-                <p id="poster-address-label" class="text-xs text-gray-500 mt-1">Grand Central Terminal</p>
-            </div>
-
-            <!-- Theme Picker -->
-            <div class="mb-3">
-                <label class="text-xs font-medium text-gray-700 block mb-2">Theme</label>
-                <div id="poster-theme-grid" class="grid grid-cols-4 gap-2"></div>
-            </div>
-
-            <!-- Aspect Ratio -->
-            <div class="mb-3">
-                <label class="text-xs font-medium text-gray-700 block mb-1">Format</label>
-                <div class="flex gap-2" id="poster-ratio-group">
-                    <button class="poster-ratio-btn active flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors" data-ratio="16:9">16:9</button>
-                    <button class="poster-ratio-btn flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors" data-ratio="3:2">3:2</button>
-                    <button class="poster-ratio-btn flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors" data-ratio="1:1">1:1</button>
-                    <button class="poster-ratio-btn flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors" data-ratio="2:3">2:3</button>
-                </div>
-            </div>
-
-            <!-- Travel Time -->
-            <div class="mb-3">
-                <label class="text-xs font-medium text-gray-700 block mb-1">Travel Time Range</label>
-                <select id="poster-max-time"
-                    class="w-full bg-white border border-gray-300 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
-                    <option value="30" selected>30 minutes</option>
-                    <option value="45">45 minutes</option>
-                    <option value="60">60 minutes</option>
-                    <option value="90">90 minutes</option>
-                </select>
-            </div>
-
-            <!-- Departure Time -->
-            <div class="mb-4">
-                <div class="flex justify-between items-center text-xs font-medium text-gray-700 mb-1">
-                    <span>Departure Time</span>
-                    <span id="poster-time-display" class="font-mono text-blue-600">8:00 AM</span>
-                </div>
-                <input type="range" id="poster-time-slider" min="0" max="47" step="1" value="16"
-                    class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
-            </div>
-
-            <!-- Generate Button -->
-            <button id="poster-generate-btn"
-                class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-3 px-4 rounded-lg transition-colors">
-                Render Poster
+            <!-- Help Button -->
+            <button
+                id="help-btn"
+                class="glass-panel px-3 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors"
+                title="Keyboard shortcuts (?)"
+                aria-label="Show keyboard shortcuts and help"
+                aria-keyshortcuts="?"
+                aria-haspopup="dialog"
+            >
+                <span class="kbd">?</span>
             </button>
-
-            <!-- Progress -->
-            <div id="poster-progress" class="hidden mt-4">
-                <div class="flex justify-between text-xs text-gray-500 mb-1">
-                    <span id="poster-progress-label">Preparing data...</span>
-                    <span id="poster-progress-pct">0%</span>
-                </div>
-                <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                    <div id="poster-progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
-                </div>
-            </div>
-
-            <!-- Result -->
-            <div id="poster-result" class="hidden mt-4">
-                <div class="border border-gray-200 rounded-lg overflow-hidden mb-3">
-                    <img id="poster-preview" class="w-full" alt="Poster preview" />
-                </div>
-                <button id="poster-download-btn"
-                    class="w-full bg-green-600 hover:bg-green-700 text-white text-sm font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                    </svg>
-                    Download PNG
-                </button>
-            </div>
-        </div><!-- /panel-poster -->
-
-    </div>
-
-    <!-- Loading Overlay -->
-    <div id="loading-overlay"
-        class="fixed inset-0 loading-backdrop z-[2000] hidden flex items-center justify-center">
-        <div class="glass-panel p-6 rounded-2xl flex flex-col items-center">
-            <div class="iso-loader" aria-hidden="true"><span></span><span></span><span></span><i></i></div>
-            <span class="text-sm font-semibold loading-text">Fetching Transit Data...</span>
         </div>
-    </div>
 
-    <!-- Progress Overlay (for rendering) -->
-    <div id="progress-overlay"
-        class="fixed bottom-4 right-4 z-[2000] hidden glass-panel px-4 py-2 rounded-lg">
-        <div class="flex items-center gap-2">
-            <div class="w-3 h-3 bg-blue-600 rounded-full progress-pulse"></div>
-            <span class="progress-text text-sm font-medium text-gray-700">Computing...</span>
+        <!-- City Selector Modal -->
+        <div
+            id="city-modal"
+            class="fixed inset-0 bg-black/50 z-[3000] hidden flex items-center justify-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="city-modal-title"
+        >
+            <div class="glass-panel rounded-2xl p-6 max-w-lg mx-4 shadow-2xl city-modal">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="city-modal-title" class="text-lg font-bold text-gray-900">
+                        Select City
+                    </h2>
+                    <button
+                        id="city-modal-close"
+                        class="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+                        aria-label="Close city selector"
+                    >
+                        &times;
+                    </button>
+                </div>
+
+                <!-- Search Input -->
+                <div class="mb-4">
+                    <input
+                        id="city-search"
+                        type="text"
+                        class="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Search cities..."
+                        autocomplete="off"
+                        aria-label="Search cities"
+                    />
+                </div>
+
+                <!-- City Grid by Region -->
+                <div id="city-grid-container">
+                    <!-- North America -->
+                    <div class="region-section" data-region="north_america">
+                        <div class="region-title">North America</div>
+                        <div class="city-grid" id="cities-north-america"></div>
+                    </div>
+
+                    <!-- Europe -->
+                    <div class="region-section" data-region="europe">
+                        <div class="region-title">Europe</div>
+                        <div class="city-grid" id="cities-europe"></div>
+                    </div>
+
+                    <!-- Asia-Pacific -->
+                    <div class="region-section" data-region="asia_pacific">
+                        <div class="region-title">Asia-Pacific</div>
+                        <div class="city-grid" id="cities-asia-pacific"></div>
+                    </div>
+
+                    <!-- South America -->
+                    <div class="region-section" data-region="south_america">
+                        <div class="region-title">South America</div>
+                        <div class="city-grid" id="cities-south-america"></div>
+                    </div>
+                </div>
+
+                <p class="mt-4 text-xs text-gray-500 text-center">
+                    Click a city to load its transit network
+                </p>
+            </div>
         </div>
-    </div>
 
-    <!-- Bottom Left Buttons -->
-    <div class="fixed bottom-4 left-4 z-[1000] flex gap-2 bottom-buttons-mobile" role="toolbar" aria-label="Map actions">
-        <!-- Share Button -->
-        <button id="share-btn"
-            class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
-            title="Copy shareable link"
-            aria-label="Share current view">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-            </svg>
-            Share
-        </button>
-
-        <!-- Export Button -->
-        <button id="export-btn"
-            class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
-            title="Export as PNG (E)"
-            aria-label="Export map as PNG image"
-            aria-keyshortcuts="E">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Export
-        </button>
-
-        <!-- Dark Mode Toggle -->
-        <button id="theme-btn"
-            class="glass-panel px-4 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
-            title="Toggle dark mode (D)"
-            aria-label="Toggle dark mode"
-            aria-keyshortcuts="D"
-            aria-pressed="false">
-            <svg id="theme-icon-light" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-            </svg>
-            <svg id="theme-icon-dark" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-        </button>
-
-        <!-- Help Button -->
-        <button id="help-btn"
-            class="glass-panel px-3 py-2 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors"
-            title="Keyboard shortcuts (?)"
-            aria-label="Show keyboard shortcuts and help"
-            aria-keyshortcuts="?"
-            aria-haspopup="dialog">
-            <span class="kbd">?</span>
-        </button>
-    </div>
-
-    <!-- City Selector Modal -->
-    <div id="city-modal" class="fixed inset-0 bg-black/50 z-[3000] hidden flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="city-modal-title">
-        <div class="glass-panel rounded-2xl p-6 max-w-lg mx-4 shadow-2xl city-modal">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-bold text-gray-900">Select City</h2>
-                <button id="city-modal-close" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+        <!-- Help Modal -->
+        <div
+            id="help-modal"
+            class="fixed inset-0 bg-black/50 z-[3000] hidden flex items-center justify-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="help-modal-title"
+        >
+            <div class="glass-panel rounded-2xl p-6 max-w-md mx-4 shadow-2xl">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="help-modal-title" class="text-lg font-bold text-gray-900">
+                        Keyboard Shortcuts
+                    </h2>
+                    <button
+                        id="help-close"
+                        class="text-gray-500 hover:text-gray-700 text-xl"
+                        aria-label="Close help"
+                    >
+                        &times;
+                    </button>
+                </div>
+                <div class="space-y-2 text-sm text-gray-700">
+                    <div class="flex justify-between">
+                        <span>Zoom in / out</span>
+                        <span><span class="kbd">+</span> <span class="kbd">-</span></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Step time back / forward 30 min</span>
+                        <span><span class="kbd">[</span> <span class="kbd">]</span></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Play / pause time animation</span>
+                        <span class="kbd">Space</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Show this help</span>
+                        <span class="kbd">?</span>
+                    </div>
+                </div>
+                <p class="mt-4 text-xs text-gray-500">
+                    Hover the map to see live travel time. Right-click for the best route from
+                    origin.
+                </p>
             </div>
-            
-            <!-- Search Input -->
-            <div class="mb-4">
-                <input id="city-search" type="text" 
-                    class="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Search cities..." autocomplete="off" />
-            </div>
-            
-            <!-- City Grid by Region -->
-            <div id="city-grid-container">
-                <!-- North America -->
-                <div class="region-section" data-region="north_america">
-                    <div class="region-title">North America</div>
-                    <div class="city-grid" id="cities-north-america"></div>
-                </div>
-                
-                <!-- Europe -->
-                <div class="region-section" data-region="europe">
-                    <div class="region-title">Europe</div>
-                    <div class="city-grid" id="cities-europe"></div>
-                </div>
-                
-                <!-- Asia-Pacific -->
-                <div class="region-section" data-region="asia_pacific">
-                    <div class="region-title">Asia-Pacific</div>
-                    <div class="city-grid" id="cities-asia-pacific"></div>
-                </div>
-                
-                <!-- South America -->
-                <div class="region-section" data-region="south_america">
-                    <div class="region-title">South America</div>
-                    <div class="city-grid" id="cities-south-america"></div>
-                </div>
-            </div>
-            
-            <p class="mt-4 text-xs text-gray-500 text-center">Click a city to load its transit network</p>
         </div>
-    </div>
 
-    <!-- Help Modal -->
-    <div id="help-modal" class="fixed inset-0 bg-black/50 z-[3000] hidden flex items-center justify-center">
-        <div class="glass-panel rounded-2xl p-6 max-w-md mx-4 shadow-2xl">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-bold text-gray-900">Keyboard Shortcuts</h2>
-                <button id="help-close" class="text-gray-500 hover:text-gray-700 text-xl">&times;</button>
-            </div>
-            <div class="space-y-2 text-sm text-gray-700">
-                <div class="flex justify-between">
-                    <span>Zoom in / out</span>
-                    <span><span class="kbd">+</span> <span class="kbd">-</span></span>
-                </div>
-                <div class="flex justify-between">
-                    <span>Step time back / forward 30 min</span>
-                    <span><span class="kbd">[</span> <span class="kbd">]</span></span>
-                </div>
-                <div class="flex justify-between">
-                    <span>Play / pause time animation</span>
-                    <span class="kbd">Space</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>Show this help</span>
-                    <span class="kbd">?</span>
-                </div>
-            </div>
-            <p class="mt-4 text-xs text-gray-500">Hover the map to see live travel time. Right-click for the best route from origin.</p>
-        </div>
-    </div>
+        <script type="module" src="/src/main.ts"></script>
 
-    <script type="module" src="/src/main.ts"></script>
-
-    <!-- GoatCounter: cookie-less analytics. Register the site code at
+        <!-- GoatCounter: cookie-less analytics. Register the site code at
          https://www.goatcounter.com to activate; harmless 404s until then. -->
-    <script data-goatcounter="https://transit-topography.goatcounter.com/count" async
-        src="https://gc.zgo.at/count.js"></script>
-
-</body>
-
+        <script
+            data-goatcounter="https://transit-topography.goatcounter.com/count"
+            async
+            src="https://gc.zgo.at/count.js"
+        ></script>
+    </body>
 </html>

@@ -30,6 +30,7 @@ for (const dirent of fs.readdirSync(outDir, { recursive: true, withFileTypes: tr
 }
 
 const { TransitGraph } = await import(pathToFileURL(path.join(outDir, 'core/transit-graph.js')));
+const { distHaversine } = await import(pathToFileURL(path.join(outDir, 'utils/haversine.js')));
 
 function buildFixtureGraph() {
   const graph = new TransitGraph();
@@ -44,6 +45,7 @@ function buildFixtureGraph() {
   return graph;
 }
 
+// Line edges: pure travel time, no transfer penalty per hop.
 {
   const graph = buildFixtureGraph();
   const times = graph.calculateNetworkTimes([{ id: 'A', initialWalkTime: 0 }], {
@@ -53,8 +55,8 @@ function buildFixtureGraph() {
   });
 
   assert.equal(times.get('A'), 60);
-  assert.equal(times.get('B'), 460);
-  assert.equal(times.get('C'), 860);
+  assert.equal(times.get('B'), 160);
+  assert.equal(times.get('C'), 260);
   assert.deepEqual(graph.getPathTo('C'), ['A', 'B', 'C']);
 }
 
@@ -68,8 +70,8 @@ function buildFixtureGraph() {
   });
 
   assert.equal(times.get('A'), 60);
-  assert.equal(times.get('B'), 460);
-  assert.equal(times.has('C'), false);
+  assert.equal(times.get('B'), 160);
+  assert.equal(times.get('C'), 260);
 }
 
 {
@@ -81,8 +83,28 @@ function buildFixtureGraph() {
   });
 
   assert.equal(times.get('C'), 0);
-  assert.equal(times.get('B'), 400);
-  assert.equal(times.get('A'), 800);
+  assert.equal(times.get('B'), 100);
+  assert.equal(times.get('A'), 200);
+}
+
+// Walk-transfer links: charged walk time + transfer penalty.
+{
+  const graph = new TransitGraph();
+  graph.addNode('X', 0, 0);
+  graph.addNode('Y', 0, 0.001); // ~111 m — inside the 200 m transfer threshold
+  graph.generateTransferEdges(200);
+
+  const times = graph.calculateNetworkTimes([{ id: 'X', initialWalkTime: 0 }], {
+    boardingWaitSec: 0,
+    transferPenaltySec: 300,
+    direction: 'depart'
+  });
+
+  const expected = distHaversine(0, 0, 0, 0.001) / 1.3 + 300;
+  assert.ok(
+    Math.abs(times.get('Y') - expected) < 1e-6,
+    `transfer hop should cost walk + penalty: got ${times.get('Y')}, want ${expected}`
+  );
 }
 
 console.log('Routing graph tests passed.');

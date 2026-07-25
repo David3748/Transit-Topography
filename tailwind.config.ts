@@ -1,17 +1,14 @@
 import type { Config } from 'tailwindcss';
 
 export default {
-  content: [
-    './index.html',
-    './src/**/*.{ts,js}',
-  ],
-  darkMode: ['selector', '[data-theme="dark"]'],
-  theme: {
-    extend: {
-      fontFamily: {
-        sans: ['Inter', 'sans-serif'],
-      },
+    content: ['./index.html', './src/**/*.{ts,js}'],
+    darkMode: ['selector', '[data-theme="dark"]'],
+    theme: {
+        extend: {
+            fontFamily: {
+                sans: ['Inter', 'sans-serif'],
+            },
+        },
     },
-  },
-  plugins: [],
+    plugins: [],
 } satisfies Config;

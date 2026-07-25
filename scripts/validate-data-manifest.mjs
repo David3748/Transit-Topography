@@ -12,7 +12,11 @@ const dataFiles = new Set(
     .map((file) => `transit_data/${file}`)
 );
 
-const cityBlocks = [...source.matchAll(/'([^']+)':\s*\{([\s\S]*?)\n\s{4}\}/g)];
+// Match one city block in CITIES. Keys may be quoted ('nyc') or bare (nyc);
+// blocks are indented 4 spaces and close with a 4-space brace.
+const cityBlocks = [...source.matchAll(/^ {4}(?:'([^']+)'|([A-Za-z_$][\w$]*)):\s*\{([\s\S]*?)\n {4}\}/gm)].map(
+  (match) => [match[1] ?? match[2], match[3]]
+);
 const walkingMatch = source.match(/WALKING_NETWORK_CITIES\s*=\s*\[([\s\S]*?)\];/);
 const walkingCities = walkingMatch
   ? [...walkingMatch[1].matchAll(/'([^']+)'/g)].map((match) => match[1])
@@ -32,7 +36,7 @@ function extractString(block, property) {
   return match ? match[1] : null;
 }
 
-for (const [, cityKey, block] of cityBlocks) {
+for (const [cityKey, block] of cityBlocks) {
   const files = extractFiles(block, 'files');
   const busFiles = extractFiles(block, 'busFiles');
   const water = extractString(block, 'water');
@@ -74,7 +78,7 @@ for (const [, cityKey, block] of cityBlocks) {
 }
 
 for (const cityKey of walkingCities) {
-  if (!cityBlocks.some(([, key]) => key === cityKey)) {
+  if (!cityBlocks.some(([key]) => key === cityKey)) {
     errors.push(`${cityKey}: listed in WALKING_NETWORK_CITIES but not present in CITIES`);
   }
 }

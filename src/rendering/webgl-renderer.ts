@@ -5,15 +5,17 @@
  */
 
 import { BAND_STOPS, NUM_BANDS } from './color-scale';
+import { EXIT_WALK_FACTOR } from '../data/city-config';
 
 // ─── Shaders ────────────────────────────────────────────────────────────────
 
 // Palette block generated from BAND_STOPS so GPU and CPU paths share one palette
-const GLSL_STOPS = BAND_STOPS.map((c, i) =>
-    `    stops[${i}] = vec3(${(c[0] / 255).toFixed(4)}, ${(c[1] / 255).toFixed(4)}, ${(c[2] / 255).toFixed(4)});`
+const GLSL_STOPS = BAND_STOPS.map(
+    (c, i) =>
+        `    stops[${i}] = vec3(${(c[0] / 255).toFixed(4)}, ${(c[1] / 255).toFixed(4)}, ${(c[2] / 255).toFixed(4)});`
 ).join('\n');
 
-const VERTEX_SHADER_SRC = /* glsl */`#version 300 es
+const VERTEX_SHADER_SRC = /* glsl */ `#version 300 es
 in vec2 a_position;
 out vec2 v_uv;
 void main() {
@@ -23,7 +25,7 @@ void main() {
     gl_Position = vec4(a_position, 0.0, 1.0);
 }`;
 
-const FRAGMENT_SHADER_SRC = /* glsl */`#version 300 es
+const FRAGMENT_SHADER_SRC = /* glsl */ `#version 300 es
 precision highp float;
 precision highp sampler2D;
 
@@ -63,7 +65,7 @@ uniform float u_revealTime;   // minutes – reveal animation frontier (< 0 = di
 // ─── Constants ───────────────────────────────────────────────────────────────
 const float PI          = 3.14159265358979323846;
 const float EARTH_R     = 6371000.0;
-const float EXIT_FACTOR = 1.4; // walking-time multiplier from station to pixel
+const float EXIT_FACTOR = ${EXIT_WALK_FACTOR.toFixed(4)}; // walking-time multiplier from station to pixel (mirrors EXIT_WALK_FACTOR in city-config.ts)
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -231,7 +233,7 @@ export class WebGLRenderer {
             alpha: true,
             premultipliedAlpha: false,
             preserveDrawingBuffer: true, // allow drawImage after gl.drawArrays
-            antialias: false
+            antialias: false,
         });
 
         if (this.gl) {
@@ -285,22 +287,41 @@ export class WebGLRenderer {
 
         // Cache uniform locations
         const names = [
-            'u_stations', 'u_numStations',
-            'u_walkingGrid', 'u_hasWalkingGrid',
-            'u_wgNorth', 'u_wgSouth', 'u_wgEast', 'u_wgWest',
-            'u_obstacles', 'u_hasObstacles',
-            'u_north', 'u_south', 'u_east', 'u_west',
-            'u_origin', 'u_walkSpeed', 'u_maxTime', 'u_opacity',
-            'u_revealTime'
+            'u_stations',
+            'u_numStations',
+            'u_walkingGrid',
+            'u_hasWalkingGrid',
+            'u_wgNorth',
+            'u_wgSouth',
+            'u_wgEast',
+            'u_wgWest',
+            'u_obstacles',
+            'u_hasObstacles',
+            'u_north',
+            'u_south',
+            'u_east',
+            'u_west',
+            'u_origin',
+            'u_walkSpeed',
+            'u_maxTime',
+            'u_opacity',
+            'u_revealTime',
         ];
         for (const n of names) {
             this.uniforms.set(n, gl.getUniformLocation(prog, n));
         }
 
         // Allocate placeholder textures (1×1 pixels)
-        this.stationTex  = this._emptyTex(gl.RGBA32F, gl.RGBA, gl.FLOAT, 1, 1, new Float32Array(4));
-        this.obstacleTex = this._emptyTex(gl.RGBA8,   gl.RGBA, gl.UNSIGNED_BYTE, 1, 1, new Uint8Array(4));
-        this.walkingTex  = this._emptyTex(gl.R32F,    gl.RED,  gl.FLOAT, 1, 1, new Float32Array(1));
+        this.stationTex = this._emptyTex(gl.RGBA32F, gl.RGBA, gl.FLOAT, 1, 1, new Float32Array(4));
+        this.obstacleTex = this._emptyTex(
+            gl.RGBA8,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            1,
+            1,
+            new Uint8Array(4)
+        );
+        this.walkingTex = this._emptyTex(gl.R32F, gl.RED, gl.FLOAT, 1, 1, new Float32Array(1));
     }
 
     private _compileShader(type: number, src: string): WebGLShader | null {
@@ -309,7 +330,12 @@ export class WebGLRenderer {
         gl.shaderSource(shader, src);
         gl.compileShader(shader);
         if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-            console.error('[WebGLRenderer] Shader compile error:', gl.getShaderInfoLog(shader), '\nSource:', src.substring(0, 500));
+            console.error(
+                '[WebGLRenderer] Shader compile error:',
+                gl.getShaderInfoLog(shader),
+                '\nSource:',
+                src.substring(0, 500)
+            );
             gl.deleteShader(shader);
             return null;
         }
@@ -317,8 +343,11 @@ export class WebGLRenderer {
     }
 
     private _emptyTex(
-        internalFmt: number, fmt: number, type: number,
-        w: number, h: number,
+        internalFmt: number,
+        fmt: number,
+        type: number,
+        w: number,
+        h: number,
         pixels: ArrayBufferView
     ): WebGLTexture {
         const gl = this.gl!;
@@ -345,7 +374,7 @@ export class WebGLRenderer {
 
         const data = new Float32Array(w * 4);
         for (let i = 0; i < n; i++) {
-            data[i * 4]     = stations[i].lat;
+            data[i * 4] = stations[i].lat;
             data[i * 4 + 1] = stations[i].lon;
             data[i * 4 + 2] = stations[i].time;
             data[i * 4 + 3] = 0;
@@ -363,13 +392,21 @@ export class WebGLRenderer {
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         } else {
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+            gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.RGBA8,
+                1,
+                1,
+                0,
+                gl.RGBA,
+                gl.UNSIGNED_BYTE,
+                new Uint8Array(4)
+            );
         }
     }
 
-    private _uploadWalkingGrid(
-        wg: { data: number[]; size: number } | null
-    ): void {
+    private _uploadWalkingGrid(wg: { data: number[]; size: number } | null): void {
         const gl = this.gl!;
         gl.bindTexture(gl.TEXTURE_2D, this.walkingTex);
         if (wg) {
@@ -380,7 +417,17 @@ export class WebGLRenderer {
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
         } else {
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, new Float32Array([-1]));
+            gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.R32F,
+                1,
+                1,
+                0,
+                gl.RED,
+                gl.FLOAT,
+                new Float32Array([-1])
+            );
         }
     }
 
@@ -390,12 +437,11 @@ export class WebGLRenderer {
         if (!this.isSupported) return;
         const gl = this.gl!;
 
-        const { width, height, activeStations,
-                obstacleCanvas = null, walkingGrid = null } = params;
+        const { width, height, activeStations, obstacleCanvas = null, walkingGrid = null } = params;
 
         // Resize offscreen canvas and viewport if needed
         if (this.offscreen.width !== width || this.offscreen.height !== height) {
-            this.offscreen.width  = width;
+            this.offscreen.width = width;
             this.offscreen.height = height;
             gl.viewport(0, 0, width, height);
         }
@@ -421,9 +467,16 @@ export class WebGLRenderer {
     private _draw(params: WebGLRenderParams, revealTime: number): void {
         const gl = this.gl!;
 
-        const { origin, bounds, activeStations,
-                opacity, maxTime, walkSpeedMps,
-                obstacleCanvas = null, walkingGrid = null } = params;
+        const {
+            origin,
+            bounds,
+            activeStations,
+            opacity,
+            maxTime,
+            walkSpeedMps,
+            obstacleCanvas = null,
+            walkingGrid = null,
+        } = params;
 
         // Clear
         gl.clearColor(0, 0, 0, 0);
@@ -448,26 +501,26 @@ export class WebGLRenderer {
         gl.uniform1i(this.uniforms.get('u_obstacles')!, 2);
 
         // Set uniforms
-        gl.uniform1i(this.uniforms.get('u_numStations')!,  activeStations.length);
+        gl.uniform1i(this.uniforms.get('u_numStations')!, activeStations.length);
         gl.uniform1i(this.uniforms.get('u_hasWalkingGrid')!, walkingGrid ? 1 : 0);
-        gl.uniform1i(this.uniforms.get('u_hasObstacles')!,  obstacleCanvas ? 1 : 0);
+        gl.uniform1i(this.uniforms.get('u_hasObstacles')!, obstacleCanvas ? 1 : 0);
 
         gl.uniform2f(this.uniforms.get('u_origin')!, origin[0], origin[1]);
-        gl.uniform1f(this.uniforms.get('u_north')!,  bounds.north);
-        gl.uniform1f(this.uniforms.get('u_south')!,  bounds.south);
-        gl.uniform1f(this.uniforms.get('u_east')!,   bounds.east);
-        gl.uniform1f(this.uniforms.get('u_west')!,   bounds.west);
+        gl.uniform1f(this.uniforms.get('u_north')!, bounds.north);
+        gl.uniform1f(this.uniforms.get('u_south')!, bounds.south);
+        gl.uniform1f(this.uniforms.get('u_east')!, bounds.east);
+        gl.uniform1f(this.uniforms.get('u_west')!, bounds.west);
         gl.uniform1f(this.uniforms.get('u_walkSpeed')!, walkSpeedMps);
-        gl.uniform1f(this.uniforms.get('u_maxTime')!,   maxTime);
-        gl.uniform1f(this.uniforms.get('u_opacity')!,   opacity);
+        gl.uniform1f(this.uniforms.get('u_maxTime')!, maxTime);
+        gl.uniform1f(this.uniforms.get('u_opacity')!, opacity);
         gl.uniform1f(this.uniforms.get('u_revealTime')!, revealTime);
 
         if (walkingGrid) {
             const wb = walkingGrid.bounds;
             gl.uniform1f(this.uniforms.get('u_wgNorth')!, wb.north);
             gl.uniform1f(this.uniforms.get('u_wgSouth')!, wb.south);
-            gl.uniform1f(this.uniforms.get('u_wgEast')!,  wb.east);
-            gl.uniform1f(this.uniforms.get('u_wgWest')!,  wb.west);
+            gl.uniform1f(this.uniforms.get('u_wgEast')!, wb.east);
+            gl.uniform1f(this.uniforms.get('u_wgWest')!, wb.west);
         }
 
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -486,10 +539,10 @@ export class WebGLRenderer {
     dispose(): void {
         if (!this.gl) return;
         const gl = this.gl;
-        if (this.stationTex)  gl.deleteTexture(this.stationTex);
+        if (this.stationTex) gl.deleteTexture(this.stationTex);
         if (this.obstacleTex) gl.deleteTexture(this.obstacleTex);
-        if (this.walkingTex)  gl.deleteTexture(this.walkingTex);
-        if (this.program)     gl.deleteProgram(this.program);
-        if (this.vao)         gl.deleteVertexArray(this.vao);
+        if (this.walkingTex) gl.deleteTexture(this.walkingTex);
+        if (this.program) gl.deleteProgram(this.program);
+        if (this.vao) gl.deleteVertexArray(this.vao);
     }
 }

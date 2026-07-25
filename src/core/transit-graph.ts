@@ -1,8 +1,9 @@
 import { distHaversine } from '../utils/haversine';
 import { BinaryHeap } from './binary-heap';
+import { WALK_SPEED_MPS } from '../data/city-config';
 import type { GraphNode, RoutingProfile, Station } from '../types';
 
-const DEFAULT_TRANSFER_PENALTY_SEC = 15;
+const DEFAULT_TRANSFER_PENALTY_SEC = 300;
 
 export class TransitGraph {
     nodes: Map<string, GraphNode> = new Map();
@@ -14,7 +15,13 @@ export class TransitGraph {
 
     addNode(id: string, lat: number, lon: number): void {
         if (!this.nodes.has(id)) {
-            this.nodes.set(id, { lat, lon, neighbors: new Map(), id });
+            this.nodes.set(id, {
+                lat,
+                lon,
+                neighbors: new Map(),
+                transferNeighbors: new Set(),
+                id,
+            });
             this.stations.push({ id, lat, lon });
         }
     }
@@ -46,8 +53,8 @@ export class TransitGraph {
         const grid = new Map<string, GraphNode[]>();
 
         const getKey = (lat: number, lon: number): string => {
-            const y = Math.floor(lat * 111000 / cellSize);
-            const x = Math.floor(lon * 111000 * Math.cos(lat * Math.PI / 180) / cellSize);
+            const y = Math.floor((lat * 111000) / cellSize);
+            const x = Math.floor((lon * 111000 * Math.cos((lat * Math.PI) / 180)) / cellSize);
             return `${x},${y}`;
         };
 
@@ -75,8 +82,16 @@ export class TransitGraph {
                         const dist = distHaversine(n1.lat, n1.lon, n2.lat, n2.lon);
 
                         if (dist <= distanceThreshold) {
-                            const time = dist / 1.3;
-                            if (!n1.neighbors.has(n2.id) || n1.neighbors.get(n2.id)! > time) {
+                            const time = dist / WALK_SPEED_MPS;
+                            const existing = n1.neighbors.get(n2.id);
+                            if (existing === undefined) {
+                                // Genuine walk-transfer link between distinct stations —
+                                // this is the only edge kind that pays the transfer penalty.
+                                n1.neighbors.set(n2.id, time);
+                                n1.transferNeighbors.add(n2.id);
+                            } else if (existing > time) {
+                                // Upgrade an implausibly slow line edge to walking speed;
+                                // it stays a line edge (no transfer penalty).
                                 n1.neighbors.set(n2.id, time);
                             }
                         }
@@ -84,16 +99,16 @@ export class TransitGraph {
                 }
             }
         });
-
-        console.log(`Generated transfer edges (threshold: ${distanceThreshold}m) using Spatial Index`);
     }
 
-    private normalizeRoutingProfile(profileOrBoardingWaitSec: number | RoutingProfile): RoutingProfile {
+    private normalizeRoutingProfile(
+        profileOrBoardingWaitSec: number | RoutingProfile
+    ): RoutingProfile {
         if (typeof profileOrBoardingWaitSec === 'number') {
             return {
                 boardingWaitSec: profileOrBoardingWaitSec,
                 transferPenaltySec: DEFAULT_TRANSFER_PENALTY_SEC,
-                direction: 'depart'
+                direction: 'depart',
             };
         }
 
@@ -103,6 +118,12 @@ export class TransitGraph {
     /**
      * Run Dijkstra from one or more starting nodes (stations near the origin).
      * `direction: "arrive"` traverses the graph backwards for reverse isochrones.
+     *
+     * Cost model: riding along line edges costs only the edge travel time
+     * (dwell is baked into the GTFS-derived speeds); the transfer penalty is
+     * charged only when crossing a walk-transfer link to another station,
+     * where it models the re-boarding wait. Transfer links are symmetric, so
+     * the same check works for the reversed ('arrive') traversal.
      */
     calculateNetworkTimes(
         startNodes: Array<{ id: string; initialWalkTime: number }>,
@@ -113,7 +134,8 @@ export class TransitGraph {
         const preds = new Map<string, string | null>();
         const entries = new Map<string, string>();
         const pq = new BinaryHeap<{ id: string; time: number }>();
-        const reverseNeighbors = profile.direction === 'arrive' ? this.buildReverseNeighbors() : null;
+        const reverseNeighbors =
+            profile.direction === 'arrive' ? this.buildReverseNeighbors() : null;
 
         startNodes.forEach(start => {
             const t = start.initialWalkTime + profile.boardingWaitSec;
@@ -134,10 +156,14 @@ export class TransitGraph {
             const currNode = this.nodes.get(currId);
             if (!currNode) continue;
 
+            const transferNeighbors = currNode.transferNeighbors;
             const neighbors = reverseNeighbors?.get(currId) ?? currNode.neighbors;
             for (const [neighborId, travelTime] of neighbors) {
-                const newTime = currTime + travelTime + profile.transferPenaltySec;
-                if (profile.maxNetworkTimeSec !== undefined && newTime > profile.maxNetworkTimeSec) continue;
+                const isTransfer = transferNeighbors.size > 0 && transferNeighbors.has(neighborId);
+                const newTime =
+                    currTime + travelTime + (isTransfer ? profile.transferPenaltySec : 0);
+                if (profile.maxNetworkTimeSec !== undefined && newTime > profile.maxNetworkTimeSec)
+                    continue;
 
                 if (!times.has(neighborId) || newTime < times.get(neighborId)!) {
                     times.set(neighborId, newTime);

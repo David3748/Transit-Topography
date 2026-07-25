@@ -6,6 +6,7 @@
 import L from 'leaflet';
 import { distHaversine } from '../utils/haversine';
 import { getColor } from './color-scale';
+import { EXIT_WALK_FACTOR } from '../data/city-config';
 import type { TransitGraph } from '../core/transit-graph';
 import type { WaterMask } from '../masks/water-mask';
 import type { BuildingMask } from '../masks/building-mask';
@@ -20,10 +21,7 @@ interface CanvasLayerOptions {
     walkSpeedMps?: number;
     maxTime?: number;
     origin?: [number, number];
-    cacheEnabled?: boolean;
-    maxCacheSize?: number;
     debounceDelay?: number;
-    progressiveRender?: boolean;
     onProgress?: (progress: number) => void;
     onComplete?: () => void;
     onRefining?: () => void;
@@ -47,17 +45,17 @@ export class IsochoneCanvasLayer {
     // Data references
     origin: [number, number];
     networkTimes: Map<string, number> = new Map();
+    /** Grid index over networkTimes (~2 km cells) for fast nearby-station queries. */
+    private networkIndex: Map<
+        string,
+        Array<{ id: string; lat: number; lon: number; time: number }>
+    > = new Map();
+    private static readonly INDEX_CELL_DEG = 0.02;
     transitGraph: TransitGraph | null = null;
     waterMask: WaterMask | null = null;
     buildingMask: BuildingMask | null = null;
     walkingNetwork: WalkingNetwork | null = null;
     dataReady: boolean = false;
-
-    // Tile cache
-    private tileCache: Map<string, ImageData> = new Map();
-    private lastOrigin: [number, number] | null = null;
-    private cacheEnabled: boolean;
-    private maxCacheSize: number;
 
     // Debounce settings
     private debounceDelay: number;
@@ -69,7 +67,14 @@ export class IsochoneCanvasLayer {
     // Progressive rendering
     private _isPreviewPass: boolean = false;
     private _previewPixelSize: number = 8;
-    private _pendingFullQuality: boolean = false;
+
+    // Walking-grid cache (keyed on origin + bounds + network version)
+    private _wgCacheKey: string | null = null;
+    private _wgCache: {
+        data: number[];
+        size: number;
+        bounds: { north: number; south: number; east: number; west: number };
+    } | null = null;
 
     // Reveal animation (armed before a render, fires when that render lands)
     private _revealArmed: boolean = false;
@@ -86,8 +91,6 @@ export class IsochoneCanvasLayer {
         this.walkSpeedMps = options.walkSpeedMps || 1.3;
         this.maxTime = options.maxTime || 30;
         this.origin = options.origin || [40.7527, -73.9772];
-        this.cacheEnabled = options.cacheEnabled !== false;
-        this.maxCacheSize = options.maxCacheSize || 100;
         this.debounceDelay = options.debounceDelay || 150;
         this.onProgress = options.onProgress || (() => {});
         this.onComplete = options.onComplete || (() => {});
@@ -100,7 +103,8 @@ export class IsochoneCanvasLayer {
     private _initWebGL(): void {
         // WebGL on by default; ?webgl=0 or localStorage tt_webgl='false' opts out
         const params = new URLSearchParams(window.location.search);
-        const webglOptOut = params.get('webgl') === '0' || localStorage.getItem('tt_webgl') === 'false';
+        const webglOptOut =
+            params.get('webgl') === '0' || localStorage.getItem('tt_webgl') === 'false';
         if (webglOptOut) {
             this.webglRenderer = null;
             return;
@@ -123,13 +127,13 @@ export class IsochoneCanvasLayer {
     private _initWorker(): void {
         try {
             const w = new RenderWorker();
-            w.onmessage = (e) => this._handleWorkerMessage(e);
-            w.onerror = (err) => {
+            w.onmessage = e => this._handleWorkerMessage(e);
+            w.onerror = err => {
                 console.warn('Worker error, falling back to main thread:', err);
                 this.worker = null;
             };
             this.worker = w;
-        } catch (err) {
+        } catch {
             console.warn('Web Worker not supported, using main thread rendering');
             this.worker = null;
         }
@@ -144,15 +148,22 @@ export class IsochoneCanvasLayer {
             }
         } else if (type === 'complete') {
             this.isRendering = false;
-            this._applyWorkerResult(data, width, height);
 
-            if (!isPreview) {
-                this.onComplete();
+            if (isPreview) {
+                // Coarse preview landed — show it immediately (no reveal
+                // animation yet), then continue with the full-quality pass.
+                this._applyWorkerResult(data, width, height, false);
+                this._isPreviewPass = false;
+                this._executeRender();
+                return;
             }
+
+            this._applyWorkerResult(data, width, height, true);
+            this.onComplete();
 
             if (this.pendingRender) {
                 this.pendingRender = false;
-                this.redraw();
+                this.redraw(true);
             }
         } else if (type === 'error') {
             console.error('Worker render error:', e.data.message);
@@ -161,14 +172,21 @@ export class IsochoneCanvasLayer {
         }
     }
 
-    private _applyWorkerResult(data: ArrayBuffer, width: number, height: number): void {
+    private _applyWorkerResult(
+        data: ArrayBuffer,
+        width: number,
+        height: number,
+        allowReveal: boolean
+    ): void {
         if (!this.canvas) return;
-        cancelAnimationFrame(this._revealRaf);
+        if (allowReveal) {
+            cancelAnimationFrame(this._revealRaf);
+        }
         const ctx = this.canvas.getContext('2d')!;
         const imgData = new ImageData(new Uint8ClampedArray(data), width, height);
         ctx.putImageData(imgData, 0, 0);
 
-        if (this._revealArmed) {
+        if (allowReveal && this._revealArmed) {
             this._revealArmed = false;
             this._runCanvasWipe();
         }
@@ -248,6 +266,7 @@ export class IsochoneCanvasLayer {
 
     addTo(map: L.Map): this {
         this.map = map;
+        // eslint-disable-next-line @typescript-eslint/no-this-alias -- needed inside the L.Layer.extend closures
         const self = this;
 
         const CanvasLayerClass = L.Layer.extend({
@@ -278,7 +297,9 @@ export class IsochoneCanvasLayer {
             },
             _onMove: function () {
                 if ((this as any)._lastBounds) {
-                    const topLeft = (this as any)._map.latLngToLayerPoint((this as any)._lastBounds.getNorthWest());
+                    const topLeft = (this as any)._map.latLngToLayerPoint(
+                        (this as any)._lastBounds.getNorthWest()
+                    );
                     L.DomUtil.setPosition((this as any)._canvas, topLeft);
                 }
             },
@@ -286,7 +307,9 @@ export class IsochoneCanvasLayer {
                 if ((this as any)._lastBounds) {
                     const scale = (this as any)._map.getZoomScale(e.zoom);
                     const offset = (this as any)._map._latLngBoundsToNewLayerBounds(
-                        (this as any)._lastBounds, e.zoom, e.center
+                        (this as any)._lastBounds,
+                        e.zoom,
+                        e.center
                     ).min;
                     L.DomUtil.setTransform((this as any)._canvas, offset, scale);
                 }
@@ -306,7 +329,7 @@ export class IsochoneCanvasLayer {
             },
             redraw: function () {
                 self.redraw();
-            }
+            },
         });
 
         this.layer = new (CanvasLayerClass as any)();
@@ -317,18 +340,57 @@ export class IsochoneCanvasLayer {
 
     setOrigin(origin: [number, number]): void {
         this.origin = origin;
-        this.invalidateCache();
-        this.lastOrigin = [...origin] as [number, number];
         this.armReveal();
     }
 
     setNetworkTimes(times: Map<string, number>): void {
         this.networkTimes = times;
+        this.rebuildNetworkIndex();
+    }
+
+    private rebuildNetworkIndex(): void {
+        this.networkIndex.clear();
+        if (!this.transitGraph) return;
+        const cell = IsochoneCanvasLayer.INDEX_CELL_DEG;
+        for (const [id, time] of this.networkTimes) {
+            const node = this.transitGraph.nodes.get(id);
+            if (!node) continue;
+            const key = `${Math.floor(node.lat / cell)},${Math.floor(node.lon / cell)}`;
+            let bucket = this.networkIndex.get(key);
+            if (!bucket) {
+                bucket = [];
+                this.networkIndex.set(key, bucket);
+            }
+            bucket.push({ id, lat: node.lat, lon: node.lon, time });
+        }
+    }
+
+    /**
+     * Reachable stations within ~`radiusDeg` of a point, using the cached grid
+     * (~4.4 km default — beyond that the exit walk exceeds any maxTime option,
+     * matching the caps already used by all three render paths).
+     */
+    getNearbyNetworkStations(
+        lat: number,
+        lng: number,
+        radiusDeg: number = 0.04
+    ): Array<{ id: string; lat: number; lon: number; time: number }> {
+        const cell = IsochoneCanvasLayer.INDEX_CELL_DEG;
+        const span = Math.ceil(radiusDeg / cell);
+        const cy = Math.floor(lat / cell);
+        const cx = Math.floor(lng / cell);
+        const results: Array<{ id: string; lat: number; lon: number; time: number }> = [];
+        for (let dy = -span; dy <= span; dy++) {
+            for (let dx = -span; dx <= span; dx++) {
+                const bucket = this.networkIndex.get(`${cy + dy},${cx + dx}`);
+                if (bucket) results.push(...bucket);
+            }
+        }
+        return results;
     }
 
     setPixelSize(size: number): void {
         this.pixelSize = size;
-        this.invalidateCache();
     }
 
     setOpacity(opacity: number): void {
@@ -337,12 +399,10 @@ export class IsochoneCanvasLayer {
 
     setMaxTime(maxTime: number): void {
         this.maxTime = maxTime;
-        this.invalidateCache();
     }
 
     setWalkingNetwork(walkingNetwork: WalkingNetwork): void {
         this.walkingNetwork = walkingNetwork;
-        this.invalidateCache();
     }
 
     setDataReady(ready: boolean): void {
@@ -351,10 +411,6 @@ export class IsochoneCanvasLayer {
             this._lastRenderTime = 0;
             this.armReveal();
         }
-    }
-
-    invalidateCache(): void {
-        this.tileCache.clear();
     }
 
     redraw(immediate: boolean = false): void {
@@ -369,7 +425,7 @@ export class IsochoneCanvasLayer {
             this.pendingRender = true;
             return;
         }
-        if (!immediate && (now - this._lastRenderTime) < this._minRenderInterval) {
+        if (!immediate && now - this._lastRenderTime < this._minRenderInterval) {
             return;
         }
         this._lastRenderTime = now;
@@ -381,7 +437,6 @@ export class IsochoneCanvasLayer {
 
         if (this.isRendering) {
             this.pendingRender = true;
-            this._pendingFullQuality = true;
             return;
         }
 
@@ -392,7 +447,9 @@ export class IsochoneCanvasLayer {
             return;
         }
 
-        this._isPreviewPass = false;
+        // Progressive rendering: at medium/high quality on the CPU worker path,
+        // paint a coarse 8px preview first, then refine to full resolution.
+        this._isPreviewPass = !this.webglRenderer && this.worker !== null && this.pixelSize <= 3;
         this._executeRender();
     }
 
@@ -419,14 +476,20 @@ export class IsochoneCanvasLayer {
 
     // ── Shared data-preparation helpers ──────────────────────────────────────
 
-    private _collectActiveStations(bounds: L.LatLngBounds): Array<{ lat: number; lon: number; time: number }> {
+    private _collectActiveStations(
+        bounds: L.LatLngBounds
+    ): Array<{ lat: number; lon: number; time: number }> {
         const stations: Array<{ lat: number; lon: number; time: number }> = [];
         if (!this.networkTimes.size || !this.transitGraph) return stations;
         for (const [id, time] of this.networkTimes) {
             const node = this.transitGraph.nodes.get(id);
-            if (node &&
-                node.lat < bounds.getNorth() + 0.1 && node.lat > bounds.getSouth() - 0.1 &&
-                node.lon > bounds.getWest() - 0.1 && node.lon < bounds.getEast() + 0.1) {
+            if (
+                node &&
+                node.lat < bounds.getNorth() + 0.1 &&
+                node.lat > bounds.getSouth() - 0.1 &&
+                node.lon > bounds.getWest() - 0.1 &&
+                node.lon < bounds.getEast() + 0.1
+            ) {
                 stations.push({ lat: node.lat, lon: node.lon, time });
             }
         }
@@ -434,12 +497,13 @@ export class IsochoneCanvasLayer {
     }
 
     private _buildObstacleCanvas(width: number, height: number): HTMLCanvasElement | null {
-        const hasWater    = this.waterMask?.isLoaded;
+        const hasWater = this.waterMask?.isLoaded;
         const hasBuilding = this.buildingMask?.isLoaded && this.buildingMask.enabled;
         if (!hasWater && !hasBuilding) return null;
 
         const oc = document.createElement('canvas');
-        oc.width = width; oc.height = height;
+        oc.width = width;
+        oc.height = height;
         const octx = oc.getContext('2d')!;
 
         if (hasWater) {
@@ -460,17 +524,40 @@ export class IsochoneCanvasLayer {
         size: number;
         bounds: { north: number; south: number; east: number; west: number };
     } | null {
-        const hasWN = this.walkingNetwork?.isLoaded && this.walkingNetwork.enabled && this.walkingNetwork.walkingTimes.size > 0;
-        if (!hasWN) return null;
+        const hasWN =
+            this.walkingNetwork?.isLoaded &&
+            this.walkingNetwork.enabled &&
+            this.walkingNetwork.walkingTimes.size > 0;
+        if (!hasWN) {
+            this._wgCacheKey = null;
+            this._wgCache = null;
+            return null;
+        }
+
+        // 22.5k nearest-node lookups per rebuild — cache on origin, viewport
+        // and network version so playback/slider/opacity changes reuse it.
+        const wn = this.walkingNetwork!;
+        const key = [
+            this.origin[0].toFixed(5),
+            this.origin[1].toFixed(5),
+            bounds.getNorth().toFixed(4),
+            bounds.getSouth().toFixed(4),
+            bounds.getEast().toFixed(4),
+            bounds.getWest().toFixed(4),
+            wn.version,
+        ].join('|');
+        if (this._wgCacheKey === key && this._wgCache) return this._wgCache;
 
         const gridSize = 150;
         const gridData = new Float32Array(gridSize * gridSize);
         const gb = {
-            north: bounds.getNorth(), south: bounds.getSouth(),
-            east: bounds.getEast(), west: bounds.getWest()
+            north: bounds.getNorth(),
+            south: bounds.getSouth(),
+            east: bounds.getEast(),
+            west: bounds.getWest(),
         };
         const latStep = (gb.north - gb.south) / gridSize;
-        const lngStep = (gb.east  - gb.west)  / gridSize;
+        const lngStep = (gb.east - gb.west) / gridSize;
 
         for (let row = 0; row < gridSize; row++) {
             const lat = gb.south + (row + 0.5) * latStep;
@@ -480,7 +567,9 @@ export class IsochoneCanvasLayer {
                 gridData[row * gridSize + col] = t !== null ? t : -1;
             }
         }
-        return { data: Array.from(gridData), size: gridSize, bounds: gb };
+        this._wgCacheKey = key;
+        this._wgCache = { data: Array.from(gridData), size: gridSize, bounds: gb };
+        return this._wgCache;
     }
 
     // ── WebGL path ────────────────────────────────────────────────────────────
@@ -490,26 +579,38 @@ export class IsochoneCanvasLayer {
         cancelAnimationFrame(this._revealRaf);
 
         const bounds = this.map.getBounds();
-        const width  = this.canvas.width;
+        const width = this.canvas.width;
         const height = this.canvas.height;
 
         const activeStations = this._collectActiveStations(bounds);
+
+        // The fragment shader scans stations linearly per pixel, so it caps at
+        // 8192. Keep the fastest stations — anything beyond that has such a
+        // large network time that it can never win the per-pixel minimum.
+        if (activeStations.length > 8192) {
+            activeStations.sort((a, b) => a.time - b.time);
+            activeStations.length = 8192;
+        }
+
         const obstacleCanvas = this._buildObstacleCanvas(width, height);
-        const walkingGrid    = this._buildWalkingGrid(bounds);
+        const walkingGrid = this._buildWalkingGrid(bounds);
 
         this.webglRenderer.render({
-            width, height,
+            width,
+            height,
             origin: this.origin,
             bounds: {
-                north: bounds.getNorth(), south: bounds.getSouth(),
-                east: bounds.getEast(),  west: bounds.getWest()
+                north: bounds.getNorth(),
+                south: bounds.getSouth(),
+                east: bounds.getEast(),
+                west: bounds.getWest(),
             },
             activeStations,
             opacity: this.opacity,
             maxTime: this.maxTime,
             walkSpeedMps: this.walkSpeedMps,
             obstacleCanvas,
-            walkingGrid
+            walkingGrid,
         });
 
         const ctx = this.canvas.getContext('2d')!;
@@ -541,38 +642,47 @@ export class IsochoneCanvasLayer {
         if (!this._isPreviewPass) this.onProgress(0);
 
         const bounds = this.map!.getBounds();
-        const width  = this.canvas!.width;
+        const width = this.canvas!.width;
         const height = this.canvas!.height;
         const effectivePixelSize = this._isPreviewPass ? this._previewPixelSize : this.pixelSize;
 
         const activeStations = this._collectActiveStations(bounds);
 
-        let obstacleData: number[] | null = null;
+        // Full-quality pass ships the obstacle mask to the worker as a
+        // transferred typed array (zero-copy) instead of a cloned number[].
+        let obstacleData: Uint8ClampedArray | null = null;
         if (!this._isPreviewPass) {
             const oc = this._buildObstacleCanvas(width, height);
             if (oc) {
-                obstacleData = Array.from(oc.getContext('2d')!.getImageData(0, 0, width, height).data);
+                obstacleData = oc.getContext('2d')!.getImageData(0, 0, width, height).data;
             }
         }
 
         const walkingGrid = this._buildWalkingGrid(bounds);
 
         const params = {
-            width, height,
+            width,
+            height,
             pixelSize: effectivePixelSize,
             opacity: this.opacity,
             maxTime: this.maxTime,
             origin: this.origin,
             bounds: {
-                north: bounds.getNorth(), south: bounds.getSouth(),
-                east: bounds.getEast(),  west: bounds.getWest()
+                north: bounds.getNorth(),
+                south: bounds.getSouth(),
+                east: bounds.getEast(),
+                west: bounds.getWest(),
             },
-            activeStations, obstacleData, walkingGrid,
+            activeStations,
+            obstacleData,
+            walkingGrid,
             walkSpeedMps: this.walkSpeedMps,
-            isPreview: this._isPreviewPass
+            isPreview: this._isPreviewPass,
         };
 
-        this.worker!.postMessage({ type: 'render', params });
+        const transfer: Transferable[] = [];
+        if (obstacleData) transfer.push(obstacleData.buffer);
+        this.worker!.postMessage({ type: 'render', params }, transfer);
     }
 
     private _renderMainThread(): void {
@@ -634,9 +744,13 @@ export class IsochoneCanvasLayer {
         if (this.networkTimes.size > 0 && this.transitGraph) {
             for (const [id, time] of this.networkTimes) {
                 const node = this.transitGraph.nodes.get(id);
-                if (node &&
-                    node.lat < north + 0.1 && node.lat > bounds.getSouth() - 0.1 &&
-                    node.lon > west - 0.1 && node.lon < bounds.getEast() + 0.1) {
+                if (
+                    node &&
+                    node.lat < north + 0.1 &&
+                    node.lat > bounds.getSouth() - 0.1 &&
+                    node.lon > west - 0.1 &&
+                    node.lon < bounds.getEast() + 0.1
+                ) {
                     activeStations.push({ lat: node.lat, lon: node.lon, time });
                 }
             }
@@ -674,7 +788,11 @@ export class IsochoneCanvasLayer {
 
                 let timeWalkDirect = Infinity;
 
-                if (this.walkingNetwork && this.walkingNetwork.isLoaded && this.walkingNetwork.enabled) {
+                if (
+                    this.walkingNetwork &&
+                    this.walkingNetwork.isLoaded &&
+                    this.walkingNetwork.enabled
+                ) {
                     const networkTime = this.walkingNetwork.getWalkingTime(lat, lng);
                     if (networkTime !== null) {
                         timeWalkDirect = networkTime;
@@ -682,8 +800,13 @@ export class IsochoneCanvasLayer {
                 }
 
                 if (timeWalkDirect === Infinity) {
-                    const hasWN = this.walkingNetwork && this.walkingNetwork.isLoaded && this.walkingNetwork.enabled;
-                    const pathIsSafe = hasWN ? isPathSafe(originPt.x, originPt.y, targetPt.x, targetPt.y) : true;
+                    const hasWN =
+                        this.walkingNetwork &&
+                        this.walkingNetwork.isLoaded &&
+                        this.walkingNetwork.enabled;
+                    const pathIsSafe = hasWN
+                        ? isPathSafe(originPt.x, originPt.y, targetPt.x, targetPt.y)
+                        : true;
                     if (pathIsSafe) {
                         const distDirect = distHaversine(this.origin[0], this.origin[1], lat, lng);
                         timeWalkDirect = distDirect / this.walkSpeedMps;
@@ -696,7 +819,7 @@ export class IsochoneCanvasLayer {
                 for (const s of nearby) {
                     if (Math.abs(s.lat - lat) + Math.abs(s.lon - lng) < 0.03) {
                         const distExit = distHaversine(lat, lng, s.lat, s.lon);
-                        const total = s.time + (distExit / this.walkSpeedMps) * 1.4;
+                        const total = s.time + (distExit / this.walkSpeedMps) * EXIT_WALK_FACTOR;
 
                         if (total < timeTransit) {
                             const stationPt = this.map!.latLngToContainerPoint([s.lat, s.lon]);
@@ -729,6 +852,69 @@ export class IsochoneCanvasLayer {
         this.onComplete();
     }
 
+    /**
+     * Sample the travel-time field over the current viewport as a minutes
+     * lattice (Infinity = unreachable) — used for GeoJSON contour export.
+     * Applies the same walk/transit model as the renderers; obstacle masks
+     * are not sampled (contours may cross water).
+     */
+    getTimeField(
+        cols: number,
+        rows: number
+    ): {
+        data: Float32Array;
+        cols: number;
+        rows: number;
+        bounds: { north: number; south: number; east: number; west: number };
+    } | null {
+        if (!this.map || !this.dataReady) return null;
+
+        const b = this.map.getBounds();
+        const bounds = {
+            north: b.getNorth(),
+            south: b.getSouth(),
+            east: b.getEast(),
+            west: b.getWest(),
+        };
+        const walkingGrid = this._buildWalkingGrid(b); // viewport-aligned; cached
+        const data = new Float32Array(cols * rows);
+
+        const sampleWalkingGrid = (lat: number, lng: number): number | null => {
+            if (!walkingGrid) return null;
+            const gb = walkingGrid.bounds;
+            const u = (lng - gb.west) / (gb.east - gb.west);
+            const v = (lat - gb.south) / (gb.north - gb.south);
+            if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+            const r = Math.min(Math.max(Math.floor(v * walkingGrid.size), 0), walkingGrid.size - 1);
+            const c = Math.min(Math.max(Math.floor(u * walkingGrid.size), 0), walkingGrid.size - 1);
+            const t = walkingGrid.data[r * walkingGrid.size + c];
+            return t >= 0 ? t : null;
+        };
+
+        for (let r = 0; r < rows; r++) {
+            const lat = bounds.north - ((r + 0.5) / rows) * (bounds.north - bounds.south);
+            for (let c = 0; c < cols; c++) {
+                const lng = bounds.west + ((c + 0.5) / cols) * (bounds.east - bounds.west);
+
+                const gridTime = sampleWalkingGrid(lat, lng);
+                let t =
+                    gridTime !== null
+                        ? gridTime
+                        : distHaversine(this.origin[0], this.origin[1], lat, lng) /
+                          this.walkSpeedMps;
+
+                for (const s of this.getNearbyNetworkStations(lat, lng)) {
+                    const exitDist = distHaversine(lat, lng, s.lat, s.lon);
+                    const total = s.time + (exitDist / this.walkSpeedMps) * EXIT_WALK_FACTOR;
+                    if (total < t) t = total;
+                }
+                data[r * cols + c] = t / 60;
+            }
+        }
+
+        return { data, cols, rows, bounds };
+    }
+
     getTravelTime(lat: number, lng: number): number | null {
         if (!this.transitGraph) return null;
 
@@ -748,12 +934,9 @@ export class IsochoneCanvasLayer {
 
         let timeTransit = Infinity;
 
-        for (const [id, time] of this.networkTimes) {
-            const node = this.transitGraph.nodes.get(id);
-            if (!node) continue;
-
-            const distExit = distHaversine(lat, lng, node.lat, node.lon);
-            const total = time + (distExit / this.walkSpeedMps);
+        for (const s of this.getNearbyNetworkStations(lat, lng)) {
+            const distExit = distHaversine(lat, lng, s.lat, s.lon);
+            const total = s.time + (distExit / this.walkSpeedMps) * EXIT_WALK_FACTOR;
 
             if (total < timeTransit) {
                 timeTransit = total;

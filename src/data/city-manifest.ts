@@ -40,8 +40,8 @@ function createEntry(id: string, city: CityConfig): CityManifestEntry {
             bus: (city.busFiles?.length ?? 0) > 0,
             water: Boolean(city.water),
             buildings: Boolean(city.buildings),
-            walking
-        }
+            walking,
+        },
     };
 }
 

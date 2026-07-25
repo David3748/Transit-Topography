@@ -6,7 +6,14 @@
 
 declare const self: DedicatedWorkerGlobalScope;
 
-import type { PosterWorkerInput, PosterWorkerOutput, PosterBounds, PosterStation, PosterEdge, MapBounds } from '../types';
+import type {
+    PosterWorkerInput,
+    PosterWorkerOutput,
+    PosterBounds,
+    PosterStation,
+    PosterEdge,
+    MapBounds,
+} from '../types';
 import type { PosterTheme } from './poster-themes';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -24,7 +31,11 @@ function lerp(a: number, b: number, t: number): number {
     return a + (b - a) * t;
 }
 
-function lerpColor(c1: [number, number, number], c2: [number, number, number], t: number): [number, number, number] {
+function lerpColor(
+    c1: [number, number, number],
+    c2: [number, number, number],
+    t: number
+): [number, number, number] {
     return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
 }
 
@@ -40,11 +51,14 @@ function clamp(v: number, min: number, max: number): number {
 
 function distHaversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat1 * Math.PI) / 180) *
+            Math.cos((lat2 * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -70,17 +84,17 @@ class SpatialIndex {
 
     private _key(lat: number, lon: number): string {
         const mLat = 111000;
-        const mLon = 111000 * Math.cos(lat * Math.PI / 180);
-        return `${Math.floor(lon * mLon / this.cellSize)},${Math.floor(lat * mLat / this.cellSize)}`;
+        const mLon = 111000 * Math.cos((lat * Math.PI) / 180);
+        return `${Math.floor((lon * mLon) / this.cellSize)},${Math.floor((lat * mLat) / this.cellSize)}`;
     }
 
     query(lat: number, lon: number, radiusMeters: number): PosterStation[] {
         const results: PosterStation[] = [];
         const mLat = 111000;
-        const mLon = 111000 * Math.cos(lat * Math.PI / 180);
+        const mLon = 111000 * Math.cos((lat * Math.PI) / 180);
         const cells = Math.ceil(radiusMeters / this.cellSize) + 1;
-        const cx = Math.floor(lon * mLon / this.cellSize);
-        const cy = Math.floor(lat * mLat / this.cellSize);
+        const cx = Math.floor((lon * mLon) / this.cellSize);
+        const cy = Math.floor((lat * mLat) / this.cellSize);
         for (let dy = -cells; dy <= cells; dy++) {
             for (let dx = -cells; dx <= cells; dx++) {
                 const cell = this.grid.get(`${cx + dx},${cy + dy}`);
@@ -94,12 +108,14 @@ class SpatialIndex {
 // ── Walking grid lookup ────────────────────────────────────────────────────
 
 function getWalkingTimeFromGrid(
-    lat: number, lng: number,
+    lat: number,
+    lng: number,
     grid: { data: number[]; size: number; bounds: MapBounds } | null
 ): number | null {
     if (!grid) return null;
     const { data, size, bounds } = grid;
-    if (lat < bounds.south || lat > bounds.north || lng < bounds.west || lng > bounds.east) return null;
+    if (lat < bounds.south || lat > bounds.north || lng < bounds.west || lng > bounds.east)
+        return null;
     const row = ((lat - bounds.south) / (bounds.north - bounds.south)) * size;
     const col = ((lng - bounds.west) / (bounds.east - bounds.west)) * size;
     const r = Math.min(Math.max(Math.floor(row), 0), size - 1);
@@ -124,7 +140,16 @@ function pixelToGeo(px: number, py: number, b: PosterBounds): [number, number] {
 
 // ── Pixel buffer helpers ───────────────────────────────────────────────────
 
-function blendPixel(data: Uint8ClampedArray, w: number, x: number, y: number, r: number, g: number, b: number, a: number): void {
+function blendPixel(
+    data: Uint8ClampedArray,
+    w: number,
+    x: number,
+    y: number,
+    r: number,
+    g: number,
+    b: number,
+    a: number
+): void {
     const ix = Math.floor(x);
     const iy = Math.floor(y);
     if (ix < 0 || iy < 0 || ix >= w) return;
@@ -143,14 +168,28 @@ function blendPixel(data: Uint8ClampedArray, w: number, x: number, y: number, r:
 // ── Anti-aliased thick line (Wu's algorithm) ───────────────────────────────
 
 function drawLine(
-    data: Uint8ClampedArray, w: number, h: number,
-    x0: number, y0: number, x1: number, y1: number,
-    r: number, g: number, b: number, alpha: number,
+    data: Uint8ClampedArray,
+    w: number,
+    h: number,
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    r: number,
+    g: number,
+    b: number,
+    alpha: number,
     lineWidth: number = 1
 ): void {
     const steep = Math.abs(y1 - y0) > Math.abs(x1 - x0);
-    if (steep) { [x0, y0] = [y0, x0]; [x1, y1] = [y1, x1]; }
-    if (x0 > x1) { [x0, x1] = [x1, x0]; [y0, y1] = [y1, y0]; }
+    if (steep) {
+        [x0, y0] = [y0, x0];
+        [x1, y1] = [y1, x1];
+    }
+    if (x0 > x1) {
+        [x0, x1] = [x1, x0];
+        [y0, y1] = [y1, y0];
+    }
 
     const dx = x1 - x0;
     const dy = y1 - y0;
@@ -180,9 +219,16 @@ function drawLine(
 // ── Anti-aliased filled circle ─────────────────────────────────────────────
 
 function drawCircle(
-    data: Uint8ClampedArray, w: number, h: number,
-    cx: number, cy: number, radius: number,
-    r: number, g: number, b: number, alpha: number
+    data: Uint8ClampedArray,
+    w: number,
+    h: number,
+    cx: number,
+    cy: number,
+    radius: number,
+    r: number,
+    g: number,
+    b: number,
+    alpha: number
 ): void {
     const r2 = radius + 1.5;
     for (let dy = -r2; dy <= r2; dy++) {
@@ -199,7 +245,11 @@ function drawCircle(
 
 // ── Gaussian blur (3×3 kernel, Infinity-aware) ─────────────────────────────
 
-function gaussianBlur3x3(src: Float32Array<ArrayBuffer>, w: number, h: number): Float32Array<ArrayBuffer> {
+function gaussianBlur3x3(
+    src: Float32Array<ArrayBuffer>,
+    w: number,
+    h: number
+): Float32Array<ArrayBuffer> {
     const dst = new Float32Array(src.length);
     const kernel = [1, 2, 1, 2, 4, 2, 1, 2, 1];
 
@@ -212,7 +262,8 @@ function gaussianBlur3x3(src: Float32Array<ArrayBuffer>, w: number, h: number): 
                 dst[ci] = center;
                 continue;
             }
-            let sum = 0, wSum = 0;
+            let sum = 0,
+                wSum = 0;
             for (let ky = -1; ky <= 1; ky++) {
                 for (let kx = -1; kx <= 1; kx++) {
                     const val = src[(y + ky) * w + (x + kx)];
@@ -235,12 +286,16 @@ function renderBackground(data: Uint8ClampedArray, w: number, h: number, theme: 
     if (theme.background.type === 'solid') {
         const [r, g, b] = parseHex(theme.background.color);
         for (let i = 0; i < data.length; i += 4) {
-            data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+            data[i] = r;
+            data[i + 1] = g;
+            data[i + 2] = b;
+            data[i + 3] = 255;
         }
     } else {
         const inner = parseHex(theme.background.inner);
         const outer = parseHex(theme.background.outer);
-        const cx = w / 2, cy = h / 2;
+        const cx = w / 2,
+            cy = h / 2;
         const maxR = Math.sqrt(cx * cx + cy * cy);
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
@@ -249,7 +304,10 @@ function renderBackground(data: Uint8ClampedArray, w: number, h: number, theme: 
                 const t = smoothstep(clamp(dist / maxR, 0, 1));
                 const c = lerpColor(inner, outer, t);
                 const idx = (y * w + x) * 4;
-                data[idx] = c[0]; data[idx + 1] = c[1]; data[idx + 2] = c[2]; data[idx + 3] = 255;
+                data[idx] = c[0];
+                data[idx + 1] = c[1];
+                data[idx + 2] = c[2];
+                data[idx + 3] = 255;
             }
         }
     }
@@ -258,8 +316,12 @@ function renderBackground(data: Uint8ClampedArray, w: number, h: number, theme: 
 // ── Layer 2: Water bodies ──────────────────────────────────────────────────
 
 function renderWater(
-    data: Uint8ClampedArray, w: number, h: number,
-    bounds: PosterBounds, polygons: [number, number][][], theme: PosterTheme
+    data: Uint8ClampedArray,
+    w: number,
+    h: number,
+    bounds: PosterBounds,
+    polygons: [number, number][][],
+    theme: PosterTheme
 ): void {
     if (!theme.waterColor || polygons.length === 0) return;
     const [wr, wg, wb] = parseHex(theme.waterColor);
@@ -274,8 +336,10 @@ function renderWater(
             let first = true;
             for (const [lat, lon] of poly) {
                 const [px, py] = geoToPixel(lat, lon, bounds);
-                if (first) { ctx.moveTo(px, py); first = false; }
-                else ctx.lineTo(px, py);
+                if (first) {
+                    ctx.moveTo(px, py);
+                    first = false;
+                } else ctx.lineTo(px, py);
             }
             ctx.closePath();
             ctx.fill();
@@ -284,7 +348,10 @@ function renderWater(
         const waterData = ctx.getImageData(0, 0, w, h).data;
         for (let i = 0; i < waterData.length; i += 4) {
             if (waterData[i + 3] > 0) {
-                data[i] = wr; data[i + 1] = wg; data[i + 2] = wb; data[i + 3] = 255;
+                data[i] = wr;
+                data[i + 1] = wg;
+                data[i + 2] = wb;
+                data[i + 3] = 255;
             }
         }
     } else {
@@ -296,12 +363,22 @@ function renderWater(
 }
 
 function scanlineFill(
-    data: Uint8ClampedArray, w: number, h: number,
-    points: [number, number][], r: number, g: number, b: number, a: number
+    data: Uint8ClampedArray,
+    w: number,
+    h: number,
+    points: [number, number][],
+    r: number,
+    g: number,
+    b: number,
+    a: number
 ): void {
     if (points.length < 3) return;
-    let minY = h, maxY = 0;
-    for (const [, py] of points) { minY = Math.min(minY, py); maxY = Math.max(maxY, py); }
+    let minY = h,
+        maxY = 0;
+    for (const [, py] of points) {
+        minY = Math.min(minY, py);
+        maxY = Math.max(maxY, py);
+    }
     minY = Math.max(0, Math.floor(minY));
     maxY = Math.min(h - 1, Math.ceil(maxY));
 
@@ -311,7 +388,7 @@ function scanlineFill(
             const [xi, yi] = points[i];
             const [xj, yj] = points[j];
             if ((yi <= y && yj > y) || (yj <= y && yi > y)) {
-                intersections.push(xi + (y - yi) / (yj - yi) * (xj - xi));
+                intersections.push(xi + ((y - yi) / (yj - yi)) * (xj - xi));
             }
         }
         intersections.sort((a, b) => a - b);
@@ -320,7 +397,10 @@ function scanlineFill(
             const xEnd = Math.min(w - 1, Math.floor(intersections[i + 1]));
             for (let x = xStart; x <= xEnd; x++) {
                 const idx = (y * w + x) * 4;
-                data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = a;
+                data[idx] = r;
+                data[idx + 1] = g;
+                data[idx + 2] = b;
+                data[idx + 3] = a;
             }
         }
     }
@@ -329,8 +409,11 @@ function scanlineFill(
 // ── Layer 3: Isochrone bands (smooth interpolation + multi-pass blur) ──────
 
 function renderIsochrones(
-    data: Uint8ClampedArray, w: number, h: number,
-    bounds: PosterBounds, input: PosterWorkerInput
+    data: Uint8ClampedArray,
+    w: number,
+    h: number,
+    bounds: PosterBounds,
+    input: PosterWorkerInput
 ): Float32Array {
     const { stations, walkingGrid, walkSpeedMps, origin, config } = input;
     const theme = input.theme;
@@ -424,8 +507,12 @@ function renderIsochrones(
 // ── Layer 4: Street network ────────────────────────────────────────────────
 
 function renderStreets(
-    data: Uint8ClampedArray, w: number, h: number,
-    bounds: PosterBounds, edges: PosterEdge[], theme: PosterTheme,
+    data: Uint8ClampedArray,
+    w: number,
+    h: number,
+    bounds: PosterBounds,
+    edges: PosterEdge[],
+    theme: PosterTheme,
     scale: number
 ): void {
     if (theme.streetOpacity <= 0) return;
@@ -445,8 +532,12 @@ function renderStreets(
 // ── Layer 5: Transit lines (with glow for dark themes) ────────────────────
 
 function renderTransitLines(
-    data: Uint8ClampedArray, w: number, h: number,
-    bounds: PosterBounds, edges: PosterEdge[], theme: PosterTheme,
+    data: Uint8ClampedArray,
+    w: number,
+    h: number,
+    bounds: PosterBounds,
+    edges: PosterEdge[],
+    theme: PosterTheme,
     scale: number
 ): void {
     if (theme.lineOpacity <= 0) return;
@@ -465,9 +556,35 @@ function renderTransitLines(
         if (e.isRail) {
             if (addGlow) {
                 // Soft outer glow — wide, very transparent
-                drawLine(data, w, h, x0, y0, x1, y1, rr, rg, rb, Math.floor(alpha * 0.10), 10 * scale);
+                drawLine(
+                    data,
+                    w,
+                    h,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    rr,
+                    rg,
+                    rb,
+                    Math.floor(alpha * 0.1),
+                    10 * scale
+                );
                 // Tighter inner glow
-                drawLine(data, w, h, x0, y0, x1, y1, rr, rg, rb, Math.floor(alpha * 0.25), 5.5 * scale);
+                drawLine(
+                    data,
+                    w,
+                    h,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    rr,
+                    rg,
+                    rb,
+                    Math.floor(alpha * 0.25),
+                    5.5 * scale
+                );
             }
             // Core rail line
             drawLine(data, w, h, x0, y0, x1, y1, rr, rg, rb, alpha, 2.5 * scale);
@@ -480,8 +597,12 @@ function renderTransitLines(
 // ── Layer 6: Station markers (rail with halo ring) ─────────────────────────
 
 function renderStations(
-    data: Uint8ClampedArray, w: number, h: number,
-    bounds: PosterBounds, stations: PosterStation[], theme: PosterTheme,
+    data: Uint8ClampedArray,
+    w: number,
+    h: number,
+    bounds: PosterBounds,
+    stations: PosterStation[],
+    theme: PosterTheme,
     scale: number
 ): void {
     const [rr, rg, rb] = parseHex(theme.railStationColor);
@@ -511,12 +632,14 @@ function renderStations(
 
 function renderVignette(data: Uint8ClampedArray, w: number, h: number, intensity: number): void {
     if (intensity <= 0) return;
-    const cx = w / 2, cy = h / 2;
+    const cx = w / 2,
+        cy = h / 2;
     const maxDist = Math.sqrt(cx * cx + cy * cy);
 
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-            const dx = x - cx, dy = y - cy;
+            const dx = x - cx,
+                dy = y - cy;
             const d = Math.sqrt(dx * dx + dy * dy) / maxDist; // 0 at center, 1 at corners
 
             if (d > 0.35) {

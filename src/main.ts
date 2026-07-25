@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import './styles/main.css';
 
 import { debounce } from './utils/debounce';
+import { FocusTrap } from './utils/focus-trap';
 import { normalizeQuery, getUrlParams, updateUrl } from './utils/url-params';
 import { trackEvent } from './utils/analytics';
 import { distHaversine } from './utils/haversine';
@@ -16,13 +17,21 @@ import { TransitFetcher } from './core/transit-fetcher';
 import { WaterMask } from './masks/water-mask';
 import { BuildingMask } from './masks/building-mask';
 import { WalkingNetwork } from './core/walking-network';
-import { CITIES, TRANSFER_PENALTY_SEC, WALK_SPEED_MPS, TILE_URLS } from './data/city-config';
+import {
+    CITIES,
+    TRANSFER_PENALTY_SEC,
+    WALK_SPEED_MPS,
+    EXIT_WALK_FACTOR,
+    TILE_URLS,
+} from './data/city-config';
 import { CITY_MANIFEST, getCityManifest } from './data/city-manifest';
 import { getTransitPeriod, getBoardingWaitSec, formatHour } from './utils/headway';
 import { PosterTab } from './poster/poster-tab';
+import { buildContourGeoJSON } from './export/contours';
 import type { RoutingProfile } from './types';
 
-const LOCATIONIQ_API_KEY = import.meta.env.VITE_LOCATIONIQ_KEY || (window as any).LOCATIONIQ_API_KEY || '';
+const LOCATIONIQ_API_KEY =
+    import.meta.env.VITE_LOCATIONIQ_KEY || (window as any).LOCATIONIQ_API_KEY || '';
 
 class TransitTopographyApp {
     private map: L.Map | null = null;
@@ -82,11 +91,11 @@ class TransitTopographyApp {
                 this.origin = [...city.center] as [number, number];
             }
         }
-        if (params.lat && params.lng) {
+        if (params.lat !== null && params.lng !== null) {
             this.origin = [params.lat, params.lng];
         }
         if (params.hour !== null) {
-            this.currentHour = Math.max(0, Math.min(23.5, params.hour));
+            this.currentHour = params.hour;
         }
         if (params.direction) {
             this.routingDirection = params.direction;
@@ -99,9 +108,9 @@ class TransitTopographyApp {
             pixelSize: this.pixelSize,
             opacity: this.opacity,
             walkSpeedMps: WALK_SPEED_MPS,
-            onProgress: (progress) => this.updateProgress(progress),
+            onProgress: progress => this.updateProgress(progress),
             onComplete: () => this.hideProgress(),
-            onRefining: () => this.showRefining()
+            onRefining: () => this.showRefining(),
         });
         this.canvasLayer.transitGraph = this.transitGraph;
         this.canvasLayer.waterMask = this.waterMask;
@@ -124,7 +133,7 @@ class TransitTopographyApp {
             await this.loadCity();
         };
         this.posterTab.onOpenCityModal = () => {
-            document.getElementById('city-modal')!.classList.remove('hidden');
+            this.openModal(document.getElementById('city-modal')!);
             (document.getElementById('city-search') as HTMLInputElement).value = '';
             (document.getElementById('city-search') as HTMLInputElement).focus();
             this.filterCities('');
@@ -138,6 +147,19 @@ class TransitTopographyApp {
             document.getElementById('city-title')!.textContent = currentCityData.name;
         }
         this.updateModeAvailability();
+
+        // Restore view options from the share URL
+        if (params.time !== null) {
+            this.maxTime = params.time;
+            (document.getElementById('max-time-select') as HTMLSelectElement).value = String(
+                params.time
+            );
+            this.canvasLayer!.setMaxTime(this.maxTime);
+            this.updateLegend();
+        }
+        if (params.buses !== null) {
+            (document.getElementById('bus-toggle') as HTMLInputElement).checked = params.buses;
+        }
 
         if (CITIES[this.currentCity]?.files.length > 0) {
             setTimeout(() => this.loadCity(), 500);
@@ -153,12 +175,12 @@ class TransitTopographyApp {
 
         this.map = L.map('map', {
             zoomControl: false,
-            attributionControl: false
+            attributionControl: false,
         }).setView(this.origin, CITIES[this.currentCity]?.zoom || 13);
 
         this.tileLayer = L.tileLayer(this.isDarkMode ? TILE_URLS.dark : TILE_URLS.light, {
             maxZoom: 19,
-            subdomains: 'abcd'
+            subdomains: 'abcd',
         }).addTo(this.map);
 
         L.control.zoom({ position: 'bottomright' }).addTo(this.map);
@@ -167,12 +189,14 @@ class TransitTopographyApp {
             className: 'custom-div-icon',
             html: '<div class="origin-pulse"><div class="origin-pulse-ring"></div><div class="origin-pulse-core"></div></div>',
             iconSize: [18, 18],
-            iconAnchor: [9, 9]
+            iconAnchor: [9, 9],
         });
 
-        this.originMarker = L.marker(this.origin, { icon: markerIcon, keyboard: false }).addTo(this.map);
+        this.originMarker = L.marker(this.origin, { icon: markerIcon, keyboard: false }).addTo(
+            this.map
+        );
 
-        this.map.on('click', (e) => {
+        this.map.on('click', e => {
             if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
                 this.updateOrigin(e.latlng.lat, e.latlng.lng);
             } else if (this.routeLayer) {
@@ -180,7 +204,7 @@ class TransitTopographyApp {
             }
         });
 
-        this.map.on('contextmenu', (e) => {
+        this.map.on('contextmenu', e => {
             e.originalEvent.preventDefault();
             this.showRouteAt(e.latlng.lat, e.latlng.lng);
         });
@@ -234,14 +258,14 @@ class TransitTopographyApp {
             }
 
             tooltip.style.left = `${pendingX}px`;
-            tooltip.style.top  = `${pendingY}px`;
+            tooltip.style.top = `${pendingY}px`;
             if (!visible) {
                 tooltip.classList.add('visible');
                 visible = true;
             }
         };
 
-        mapEl.addEventListener('mousemove', (e) => {
+        mapEl.addEventListener('mousemove', e => {
             if (!this.map) return;
             const point = this.map.mouseEventToLatLng(e);
             lastLat = point.lat;
@@ -277,23 +301,23 @@ class TransitTopographyApp {
 
         const transitMode = this.transitGraph.nodes.size > 0 && this.networkTimes.size > 0;
         if (transitMode) {
-            for (const [id, time] of this.networkTimes) {
-                const node = this.transitGraph.nodes.get(id);
-                if (!node) continue;
-                const dExit = distHaversine(lat, lng, node.lat, node.lon);
-                const tExit = dExit / WALK_SPEED_MPS;
-                const total = time + tExit;
+            for (const s of this.canvasLayer!.getNearbyNetworkStations(lat, lng)) {
+                const dExit = distHaversine(lat, lng, s.lat, s.lon);
+                const tExit = (dExit / WALK_SPEED_MPS) * EXIT_WALK_FACTOR;
+                const total = s.time + tExit;
                 if (total < bestTotalSec) {
                     bestTotalSec = total;
-                    bestStationId = id;
+                    bestStationId = s.id;
                     bestExitWalkSec = tExit;
                 }
             }
         }
 
         // Walk-only time
-        const walkOnlySec = distHaversine(this.origin[0], this.origin[1], lat, lng) / WALK_SPEED_MPS;
-        const usingTransit = transitMode && bestStationId !== null && bestTotalSec < walkOnlySec - 30;
+        const walkOnlySec =
+            distHaversine(this.origin[0], this.origin[1], lat, lng) / WALK_SPEED_MPS;
+        const usingTransit =
+            transitMode && bestStationId !== null && bestTotalSec < walkOnlySec - 30;
 
         // Draw the route
         this.clearRouteLayer();
@@ -303,7 +327,8 @@ class TransitTopographyApp {
         const destIcon = L.divIcon({
             className: 'custom-div-icon',
             html: `<div style="width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4);"></div>`,
-            iconSize: [14, 14], iconAnchor: [7, 7]
+            iconSize: [14, 14],
+            iconAnchor: [7, 7],
         });
         L.marker([lat, lng], { icon: destIcon, keyboard: false }).addTo(this.routeLayer);
 
@@ -316,10 +341,13 @@ class TransitTopographyApp {
 
             if (entryNode && exitNode) {
                 // Walk leg: origin → entry station
-                L.polyline(
-                    [this.origin, [entryNode.lat, entryNode.lon]],
-                    { color: '#64748b', weight: 3, opacity: 0.85, dashArray: '5, 6', lineCap: 'round' }
-                ).addTo(this.routeLayer);
+                L.polyline([this.origin, [entryNode.lat, entryNode.lon]], {
+                    color: '#64748b',
+                    weight: 3,
+                    opacity: 0.85,
+                    dashArray: '5, 6',
+                    lineCap: 'round',
+                }).addTo(this.routeLayer);
 
                 // Transit leg(s): entry → ... → exit (follow the path)
                 const coords: [number, number][] = path
@@ -328,28 +356,52 @@ class TransitTopographyApp {
                     .map(n => [n!.lat, n!.lon]);
                 if (coords.length >= 2) {
                     L.polyline(coords, {
-                        color: '#2563eb', weight: 4, opacity: 0.95, lineCap: 'round', lineJoin: 'round'
+                        color: '#2563eb',
+                        weight: 4,
+                        opacity: 0.95,
+                        lineCap: 'round',
+                        lineJoin: 'round',
                     }).addTo(this.routeLayer);
                 }
 
                 // Walk leg: exit station → destination
                 L.polyline(
-                    [[exitNode.lat, exitNode.lon], [lat, lng]],
-                    { color: '#64748b', weight: 3, opacity: 0.85, dashArray: '5, 6', lineCap: 'round' }
+                    [
+                        [exitNode.lat, exitNode.lon],
+                        [lat, lng],
+                    ],
+                    {
+                        color: '#64748b',
+                        weight: 3,
+                        opacity: 0.85,
+                        dashArray: '5, 6',
+                        lineCap: 'round',
+                    }
                 ).addTo(this.routeLayer);
 
                 // Mark entry / exit stations
-                const stationIcon = (color: string) => L.divIcon({
-                    className: 'custom-div-icon',
-                    html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.35);"></div>`,
-                    iconSize: [12, 12], iconAnchor: [6, 6]
-                });
-                L.marker([entryNode.lat, entryNode.lon], { icon: stationIcon('#2563eb'), keyboard: false }).addTo(this.routeLayer);
+                const stationIcon = (color: string) =>
+                    L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.35);"></div>`,
+                        iconSize: [12, 12],
+                        iconAnchor: [6, 6],
+                    });
+                L.marker([entryNode.lat, entryNode.lon], {
+                    icon: stationIcon('#2563eb'),
+                    keyboard: false,
+                }).addTo(this.routeLayer);
                 if (entryNode.id !== exitNode.id) {
-                    L.marker([exitNode.lat, exitNode.lon], { icon: stationIcon('#2563eb'), keyboard: false }).addTo(this.routeLayer);
+                    L.marker([exitNode.lat, exitNode.lon], {
+                        icon: stationIcon('#2563eb'),
+                        keyboard: false,
+                    }).addTo(this.routeLayer);
                 }
 
-                const entryWalkMin = (distHaversine(this.origin[0], this.origin[1], entryNode.lat, entryNode.lon) / WALK_SPEED_MPS) / 60;
+                const entryWalkMin =
+                    distHaversine(this.origin[0], this.origin[1], entryNode.lat, entryNode.lon) /
+                    WALK_SPEED_MPS /
+                    60;
                 const exitWalkMin = bestExitWalkSec / 60;
                 const transitMin = totalMin - entryWalkMin - exitWalkMin;
                 const transfers = Math.max(0, path.length - 2);
@@ -357,17 +409,27 @@ class TransitTopographyApp {
             }
         } else {
             // Pure walking
-            L.polyline(
-                [this.origin, [lat, lng]],
-                { color: '#64748b', weight: 3, opacity: 0.9, dashArray: '5, 6', lineCap: 'round' }
-            ).addTo(this.routeLayer);
+            L.polyline([this.origin, [lat, lng]], {
+                color: '#64748b',
+                weight: 3,
+                opacity: 0.9,
+                dashArray: '5, 6',
+                lineCap: 'round',
+            }).addTo(this.routeLayer);
             summary = `${Math.round(totalMin)} min on foot`;
         }
 
         // Popup label at the destination
-        L.popup({ closeButton: false, autoClose: false, closeOnClick: false, className: 'route-popup' })
+        L.popup({
+            closeButton: false,
+            autoClose: false,
+            closeOnClick: false,
+            className: 'route-popup',
+        })
             .setLatLng([lat, lng])
-            .setContent(`<div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:2px;">Best route</div><div style="font-size:13px;font-weight:600;color:#0f172a;">${summary}</div>`)
+            .setContent(
+                `<div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:2px;">Best route</div><div style="font-size:13px;font-weight:600;color:#0f172a;">${summary}</div>`
+            )
             .openOn(this.map!);
 
         // Auto-clear after a few seconds
@@ -387,17 +449,50 @@ class TransitTopographyApp {
         }
     }
 
+    // ── Modal helpers (focus-trapped, focus restored on close) ───────────
+    private activeFocusTrap: FocusTrap | null = null;
+
+    private openModal(modal: HTMLElement): void {
+        this.activeFocusTrap?.deactivate();
+        this.activeFocusTrap = null;
+        modal.classList.remove('hidden');
+        this.activeFocusTrap = new FocusTrap(modal);
+        this.activeFocusTrap.activate();
+    }
+
+    private closeModal(modal: HTMLElement): void {
+        modal.classList.add('hidden');
+        this.activeFocusTrap?.deactivate();
+        this.activeFocusTrap = null;
+    }
+
+    /** Called by the window 'offline' listener. */
+    notifyOffline(): void {
+        this.toast('You are offline — cached data will be used where possible', 'info', 4000);
+    }
+
+    /** Called by the window 'online' listener. */
+    notifyOnline(): void {
+        this.toast('Back online', 'success');
+    }
+
     // ── Toast notifications ──────────────────────────────────────────────
     private toastContainer: HTMLDivElement | null = null;
-    private toast(message: string, kind: 'success' | 'error' | 'info' = 'info', durationMs = 2400): void {
+    private toast(
+        message: string,
+        kind: 'success' | 'error' | 'info' = 'info',
+        durationMs = 2400
+    ): void {
         if (!this.toastContainer) {
             const c = document.createElement('div');
             c.id = 'toast-container';
+            c.setAttribute('aria-live', 'polite');
             document.body.appendChild(c);
             this.toastContainer = c;
         }
         const t = document.createElement('div');
         t.className = `toast toast-${kind}`;
+        t.setAttribute('role', kind === 'error' ? 'alert' : 'status');
         t.innerHTML = `<span class="toast-msg"></span>`;
         (t.querySelector('.toast-msg') as HTMLElement).textContent = message;
         this.toastContainer.appendChild(t);
@@ -413,9 +508,10 @@ class TransitTopographyApp {
         this.originMarker!.setLatLng(this.origin);
 
         if (labelText) {
+            this.cancelPendingGeocode();
             document.getElementById('origin-label')!.innerText = labelText;
         } else {
-            this.updateOriginLabel({ lat, lon: lng });
+            this.scheduleOriginLabelUpdate(lat, lng);
         }
 
         // Update all render data BEFORE setView so any triggered redraws
@@ -445,12 +541,13 @@ class TransitTopographyApp {
         this.originMarker!.setLatLng(this.origin);
 
         if (labelText) {
+            this.cancelPendingGeocode();
             document.getElementById('origin-label')!.innerText = labelText;
         } else {
-            this.updateOriginLabel({ lat, lon: lng });
+            this.scheduleOriginLabelUpdate(lat, lng);
         }
 
-        updateUrl(this.currentCity, lat, lng, this.currentHour, this.routingDirection);
+        this.updateShareUrl();
 
         // Update all render data BEFORE panning so the moveend-triggered
         // redraw already has the correct origin, walking times, and network times.
@@ -475,19 +572,75 @@ class TransitTopographyApp {
         this.map!.panTo(this.origin);
     }
 
-    private async updateOriginLabel(latlng: { lat: number; lon: number }): Promise<void> {
-        try {
-            const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latlng.lat}&lon=${latlng.lon}&zoom=18&addressdetails=1`);
-            const data = await resp.json();
-            const road = data.address.road || "New Location";
-            const suburb = data.address.suburb || data.address.neighbourhood || data.address.city_district || data.address.city || "Unknown Location";
-            document.getElementById('origin-label')!.innerText = `${road} (${suburb})`;
+    // ── Reverse geocoding (debounced — Nominatim policy allows ~1 req/s) ────
+    private reverseGeocodeTimer: ReturnType<typeof setTimeout> | null = null;
+    private lastGeocode: { lat: number; lng: number } | null = null;
+    private geocodeSeq: number = 0;
 
-            const city = data.address.city || data.address.town || data.address.village || data.address.county || "NYC";
-            document.getElementById('city-title')!.innerText = city;
-        } catch {
-            document.getElementById('origin-label')!.innerText = `${latlng.lat.toFixed(4)}, ${latlng.lon.toFixed(4)}`;
+    private cancelPendingGeocode(): void {
+        if (this.reverseGeocodeTimer) {
+            clearTimeout(this.reverseGeocodeTimer);
+            this.reverseGeocodeTimer = null;
         }
+        // Invalidate any in-flight response so it can't overwrite a user-chosen label
+        this.geocodeSeq++;
+    }
+
+    /**
+     * Schedule a reverse geocode for the origin label. Debounced and skipped
+     * when the origin hasn't meaningfully moved, so time-slider ticks and the
+     * 24 h playback don't hammer the free Nominatim endpoint.
+     */
+    private scheduleOriginLabelUpdate(lat: number, lng: number): void {
+        if (
+            this.lastGeocode &&
+            distHaversine(this.lastGeocode.lat, this.lastGeocode.lng, lat, lng) < 25
+        ) {
+            return;
+        }
+        this.lastGeocode = { lat, lng };
+        if (this.reverseGeocodeTimer) clearTimeout(this.reverseGeocodeTimer);
+        this.reverseGeocodeTimer = setTimeout(() => {
+            this.reverseGeocodeTimer = null;
+            this.updateOriginLabel(lat, lng);
+        }, 700);
+    }
+
+    private async updateOriginLabel(lat: number, lon: number): Promise<void> {
+        const seq = ++this.geocodeSeq;
+        try {
+            const resp = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`
+            );
+            if (!resp.ok) throw new Error(`Nominatim reverse geocode failed: ${resp.status}`);
+            const data = await resp.json();
+            if (seq !== this.geocodeSeq) return; // superseded by a newer request
+            const road = data.address?.road || data.display_name?.split(',')[0] || 'New Location';
+            const suburb =
+                data.address?.suburb ||
+                data.address?.neighbourhood ||
+                data.address?.city_district ||
+                data.address?.city ||
+                'Unknown Location';
+            document.getElementById('origin-label')!.innerText = `${road} (${suburb})`;
+        } catch {
+            if (seq !== this.geocodeSeq) return;
+            document.getElementById('origin-label')!.innerText =
+                `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+        }
+    }
+
+    /** Persist the full current view state to the URL for sharing. */
+    private updateShareUrl(): void {
+        const busToggle = document.getElementById('bus-toggle') as HTMLInputElement | null;
+        updateUrl(
+            this.currentCity,
+            this.origin[0],
+            this.origin[1],
+            this.currentHour,
+            this.routingDirection,
+            { maxTime: this.maxTime, buses: busToggle?.checked ?? false }
+        );
     }
 
     private getRoutingProfile(): RoutingProfile {
@@ -495,38 +648,62 @@ class TransitTopographyApp {
             boardingWaitSec: getBoardingWaitSec(this.currentHour),
             transferPenaltySec: TRANSFER_PENALTY_SEC,
             direction: this.routingDirection,
-            maxNetworkTimeSec: this.maxTime * 60 * 4
+            maxNetworkTimeSec: this.maxTime * 60 * 4,
         };
     }
 
-    private buildEntryNodes(lat: number, lng: number): Array<{ id: string; initialWalkTime: number }> {
+    /**
+     * Seed stations for the network Dijkstra: every station within 2 km of the
+     * origin. First-mile cost prefers street-network times (computed from the
+     * same origin just before this runs) and falls back to straight-line
+     * distance corrected for street circuity.
+     */
+    private buildEntryNodes(
+        lat: number,
+        lng: number
+    ): Array<{ id: string; initialWalkTime: number }> {
         const entryNodes: Array<{ id: string; initialWalkTime: number }> = [];
+        const useNetwork =
+            this.walkingNetwork.isLoaded &&
+            this.walkingNetwork.enabled &&
+            this.walkingNetwork.walkingTimes.size > 0;
+
         for (const [id, node] of this.transitGraph.nodes) {
             const dist = distHaversine(lat, lng, node.lat, node.lon);
-            if (dist < 2000) {
-                entryNodes.push({ id, initialWalkTime: dist / WALK_SPEED_MPS });
+            if (dist >= 2000) continue;
+
+            let walkTime: number | null = null;
+            if (useNetwork) {
+                walkTime = this.walkingNetwork.getWalkingTime(node.lat, node.lon);
             }
+            if (walkTime === null || walkTime === undefined) {
+                walkTime = (dist / WALK_SPEED_MPS) * EXIT_WALK_FACTOR;
+            }
+            entryNodes.push({ id, initialWalkTime: walkTime });
         }
         return entryNodes;
     }
 
     private initUI(): void {
-        document.getElementById('opacity-slider')!.addEventListener('input', (e) => {
-            this.opacity = parseFloat((e.target as HTMLInputElement).value);
+        document.getElementById('opacity-slider')!.addEventListener('input', e => {
+            const target = e.target as HTMLInputElement;
+            this.opacity = parseFloat(target.value);
+            target.setAttribute('aria-valuenow', target.value);
             this.canvasLayer!.setOpacity(this.opacity);
             this.canvasLayer!.redraw();
         });
 
-        document.getElementById('res-select')!.addEventListener('change', (e) => {
+        document.getElementById('res-select')!.addEventListener('change', e => {
             this.pixelSize = parseInt((e.target as HTMLSelectElement).value);
             this.canvasLayer!.setPixelSize(this.pixelSize);
             this.canvasLayer!.forceRedraw();
         });
 
-        document.getElementById('max-time-select')!.addEventListener('change', (e) => {
+        document.getElementById('max-time-select')!.addEventListener('change', e => {
             this.maxTime = parseInt((e.target as HTMLSelectElement).value);
             this.canvasLayer!.setMaxTime(this.maxTime);
             this.updateLegend();
+            this.updateShareUrl();
             this.canvasLayer!.forceRedraw();
         });
 
@@ -537,7 +714,7 @@ class TransitTopographyApp {
         timeSlider.addEventListener('input', () => {
             this.currentHour = parseInt(timeSlider.value) * 0.5;
             this.updateTimeDisplay();
-            updateUrl(this.currentCity, this.origin[0], this.origin[1], this.currentHour, this.routingDirection);
+            this.updateShareUrl();
             if (this.transitGraph.nodes.size > 0) {
                 this.updateOrigin(this.origin[0], this.origin[1]);
             }
@@ -545,23 +722,35 @@ class TransitTopographyApp {
         this.syncRoutingDirectionButtons();
         this.updateTimeDisplay();
 
-        document.getElementById('time-play-btn')!.addEventListener('click', () => this.toggleTimePlayback());
-        document.getElementById('depart-mode-btn')!.addEventListener('click', () => this.setRoutingDirection('depart'));
-        document.getElementById('arrive-mode-btn')!.addEventListener('click', () => this.setRoutingDirection('arrive'));
+        document
+            .getElementById('time-play-btn')!
+            .addEventListener('click', () => this.toggleTimePlayback());
+        document
+            .getElementById('depart-mode-btn')!
+            .addEventListener('click', () => this.setRoutingDirection('depart'));
+        document
+            .getElementById('arrive-mode-btn')!
+            .addEventListener('click', () => this.setRoutingDirection('arrive'));
 
         document.getElementById('theme-btn')!.addEventListener('click', this.toggleDarkMode);
 
-        document.getElementById('stations-toggle')!.addEventListener('change', (e) => {
+        document.getElementById('stations-toggle')!.addEventListener('change', e => {
             this.showStations = (e.target as HTMLInputElement).checked;
             this.toggleStations();
         });
 
-        document.getElementById('lines-toggle')!.addEventListener('change', (e) => {
+        document.getElementById('lines-toggle')!.addEventListener('change', e => {
             this.showLines = (e.target as HTMLInputElement).checked;
             this.toggleLines();
         });
 
-        document.getElementById('walking-network-toggle')!.addEventListener('change', (e) => {
+        // Bus toggle takes effect immediately (reloads the city graph)
+        document.getElementById('bus-toggle')!.addEventListener('change', () => {
+            this.updateShareUrl();
+            this.loadCity();
+        });
+
+        document.getElementById('walking-network-toggle')!.addEventListener('change', e => {
             this.walkingNetwork.enabled = (e.target as HTMLInputElement).checked;
             this.canvasLayer!.forceRedraw();
         });
@@ -569,15 +758,18 @@ class TransitTopographyApp {
         this.updateWalkingNetworkUI();
 
         document.getElementById('export-btn')!.addEventListener('click', this.exportImage);
+        document
+            .getElementById('export-geojson-btn')!
+            .addEventListener('click', () => this.exportGeoJSON());
 
         const helpBtn = document.getElementById('help-btn')!;
         const helpModal = document.getElementById('help-modal')!;
         const helpClose = document.getElementById('help-close')!;
 
-        helpBtn.addEventListener('click', () => helpModal.classList.remove('hidden'));
-        helpClose.addEventListener('click', () => helpModal.classList.add('hidden'));
-        helpModal.addEventListener('click', (e) => {
-            if (e.target === helpModal) helpModal.classList.add('hidden');
+        helpBtn.addEventListener('click', () => this.openModal(helpModal));
+        helpClose.addEventListener('click', () => this.closeModal(helpModal));
+        helpModal.addEventListener('click', e => {
+            if (e.target === helpModal) this.closeModal(helpModal);
         });
 
         this.initCityModal();
@@ -586,12 +778,15 @@ class TransitTopographyApp {
         document.getElementById('share-btn')!.addEventListener('click', () => {
             trackEvent('share-click');
             const url = window.location.href;
-            navigator.clipboard.writeText(url).then(() => {
-                this.toast('Link copied to clipboard', 'success');
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-                this.toast('Could not copy link — open dev tools to grab URL', 'error');
-            });
+            navigator.clipboard
+                .writeText(url)
+                .then(() => {
+                    this.toast('Link copied to clipboard', 'success');
+                })
+                .catch(err => {
+                    console.error('Failed to copy:', err);
+                    this.toast('Could not copy link — open dev tools to grab URL', 'error');
+                });
         });
     }
 
@@ -648,13 +843,23 @@ class TransitTopographyApp {
 
         const timeDisplay = document.getElementById('time-display');
         const modeLabel = document.getElementById('time-mode-label');
-        const serviceDot  = document.getElementById('service-dot');
+        const serviceDot = document.getElementById('service-dot');
         const serviceLabel = document.getElementById('service-label');
 
-        if (timeDisplay)  timeDisplay.textContent = formatHour(this.currentHour);
-        if (modeLabel) modeLabel.textContent = this.routingDirection === 'arrive' ? 'Arrival Time' : 'Departure Time';
-        if (serviceDot)   serviceDot.style.backgroundColor = period.color;
-        if (serviceLabel) serviceLabel.textContent = `${period.name} · ~${headwayMin} min frequency`;
+        if (timeDisplay) timeDisplay.textContent = formatHour(this.currentHour);
+        if (modeLabel)
+            modeLabel.textContent =
+                this.routingDirection === 'arrive' ? 'Arrival Time' : 'Departure Time';
+
+        // Keep the slider's accessible value in sync for screen readers
+        const timeSlider = document.getElementById('time-slider') as HTMLInputElement | null;
+        if (timeSlider) {
+            timeSlider.setAttribute('aria-valuenow', String(Math.round(this.currentHour * 2)));
+            timeSlider.setAttribute('aria-valuetext', formatHour(this.currentHour));
+        }
+        if (serviceDot) serviceDot.style.backgroundColor = period.color;
+        if (serviceLabel)
+            serviceLabel.textContent = `${period.name} · ~${headwayMin} min frequency`;
     }
 
     private setRoutingDirection(direction: RoutingProfile['direction']): void {
@@ -662,7 +867,7 @@ class TransitTopographyApp {
         this.routingDirection = direction;
         this.syncRoutingDirectionButtons();
         this.updateTimeDisplay();
-        updateUrl(this.currentCity, this.origin[0], this.origin[1], this.currentHour, this.routingDirection);
+        this.updateShareUrl();
         if (this.transitGraph.nodes.size > 0) {
             this.updateOrigin(this.origin[0], this.origin[1]);
         }
@@ -686,34 +891,34 @@ class TransitTopographyApp {
         this.populateCityGrid();
 
         cityTitleBtn.addEventListener('click', () => {
-            cityModal.classList.remove('hidden');
+            this.openModal(cityModal);
             citySearch.value = '';
             citySearch.focus();
             this.filterCities('');
         });
 
-        cityModalClose.addEventListener('click', () => cityModal.classList.add('hidden'));
-        cityModal.addEventListener('click', (e) => {
-            if (e.target === cityModal) cityModal.classList.add('hidden');
+        cityModalClose.addEventListener('click', () => this.closeModal(cityModal));
+        cityModal.addEventListener('click', e => {
+            if (e.target === cityModal) this.closeModal(cityModal);
         });
 
-        citySearch.addEventListener('input', (e) => {
+        citySearch.addEventListener('input', e => {
             this.filterCities((e.target as HTMLInputElement).value.toLowerCase());
         });
 
-        citySearch.addEventListener('keydown', (e) => {
+        citySearch.addEventListener('keydown', e => {
             if (e.key === 'Escape') {
-                cityModal.classList.add('hidden');
+                this.closeModal(cityModal);
             }
         });
     }
 
     private populateCityGrid(): void {
         const regionContainers: Record<string, HTMLElement | null> = {
-            'north_america': document.getElementById('cities-north-america'),
-            'europe': document.getElementById('cities-europe'),
-            'asia_pacific': document.getElementById('cities-asia-pacific'),
-            'south_america': document.getElementById('cities-south-america')
+            north_america: document.getElementById('cities-north-america'),
+            europe: document.getElementById('cities-europe'),
+            asia_pacific: document.getElementById('cities-asia-pacific'),
+            south_america: document.getElementById('cities-south-america'),
         };
 
         Object.values(regionContainers).forEach(c => c && (c.innerHTML = ''));
@@ -738,7 +943,9 @@ class TransitTopographyApp {
 
     private filterCities(query: string): void {
         const chips = document.querySelectorAll('.city-chip') as NodeListOf<HTMLElement>;
-        const regionSections = document.querySelectorAll('.region-section') as NodeListOf<HTMLElement>;
+        const regionSections = document.querySelectorAll(
+            '.region-section'
+        ) as NodeListOf<HTMLElement>;
 
         chips.forEach(chip => {
             const name = chip.dataset.name || '';
@@ -763,13 +970,13 @@ class TransitTopographyApp {
             chip.classList.toggle('active', (chip as HTMLElement).dataset.city === cityKey);
         });
 
-        document.getElementById('city-modal')!.classList.add('hidden');
+        this.closeModal(document.getElementById('city-modal')!);
 
         this.origin = [...city.center] as [number, number];
         this.map!.setView(this.origin, city.zoom);
         this.originMarker!.setLatLng(this.origin);
 
-        updateUrl(cityKey, this.origin[0], this.origin[1], this.currentHour, this.routingDirection);
+        this.updateShareUrl();
         this.posterTab.syncCity(cityKey);
         this.posterTab.syncOrigin(this.origin, city.name);
         this.updateModeAvailability();
@@ -777,7 +984,11 @@ class TransitTopographyApp {
     }
 
     private handleKeyboard(e: KeyboardEvent): void {
-        if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+        if (
+            (e.target as HTMLElement).tagName === 'INPUT' ||
+            (e.target as HTMLElement).tagName === 'TEXTAREA'
+        )
+            return;
 
         switch (e.key) {
             case '=':
@@ -808,12 +1019,18 @@ class TransitTopographyApp {
                 this.toggleTimePlayback();
                 break;
             }
-            case '?':
-                document.getElementById('help-modal')!.classList.toggle('hidden');
+            case '?': {
+                const helpModal = document.getElementById('help-modal')!;
+                if (helpModal.classList.contains('hidden')) {
+                    this.openModal(helpModal);
+                } else {
+                    this.closeModal(helpModal);
+                }
                 break;
+            }
             case 'Escape':
-                document.getElementById('help-modal')!.classList.add('hidden');
-                document.getElementById('city-modal')!.classList.add('hidden');
+                this.closeModal(document.getElementById('help-modal')!);
+                this.closeModal(document.getElementById('city-modal')!);
                 this.stopTimePlayback();
                 break;
         }
@@ -828,7 +1045,7 @@ class TransitTopographyApp {
         this.map!.removeLayer(this.tileLayer!);
         this.tileLayer = L.tileLayer(this.isDarkMode ? TILE_URLS.dark : TILE_URLS.light, {
             maxZoom: 19,
-            subdomains: 'abcd'
+            subdomains: 'abcd',
         }).addTo(this.map!);
 
         this.tileLayer.bringToBack();
@@ -838,6 +1055,7 @@ class TransitTopographyApp {
     private updateThemeIcons(): void {
         const lightIcon = document.getElementById('theme-icon-light')!;
         const darkIcon = document.getElementById('theme-icon-dark')!;
+        document.getElementById('theme-btn')!.setAttribute('aria-pressed', String(this.isDarkMode));
         if (this.isDarkMode) {
             lightIcon.classList.add('hidden');
             darkIcon.classList.remove('hidden');
@@ -883,7 +1101,7 @@ class TransitTopographyApp {
             return false;
         };
 
-        this.transitGraph.stations.forEach((station) => {
+        this.transitGraph.stations.forEach(station => {
             const isRail = isRailStation(station.id);
 
             const marker = L.circleMarker([station.lat, station.lon], {
@@ -892,7 +1110,7 @@ class TransitTopographyApp {
                 color: '#fff',
                 weight: isRail ? 2 : 1,
                 opacity: 1,
-                fillOpacity: isRail ? 0.9 : 0.6
+                fillOpacity: isRail ? 0.9 : 0.6,
             });
 
             this.stationLayer.addLayer(marker);
@@ -928,12 +1146,15 @@ class TransitTopographyApp {
                 const lineOpacity = isRail ? 0.8 : 0.5;
 
                 const line = L.polyline(
-                    [[node.lat, node.lon], [neighborNode.lat, neighborNode.lon]],
+                    [
+                        [node.lat, node.lon],
+                        [neighborNode.lat, neighborNode.lon],
+                    ],
                     {
                         color,
                         weight: lineWeight,
                         opacity: lineOpacity,
-                        dashArray: isBus ? '4, 4' : undefined
+                        dashArray: isBus ? '4, 4' : undefined,
                     }
                 );
 
@@ -945,7 +1166,8 @@ class TransitTopographyApp {
     private async exportImage(): Promise<void> {
         const btn = document.getElementById('export-btn')!;
         const originalHTML = btn.innerHTML;
-        btn.innerHTML = '<div class="animate-spin h-4 w-4 border-2 border-gray-700 border-t-transparent rounded-full"></div> Exporting...';
+        btn.innerHTML =
+            '<div class="animate-spin h-4 w-4 border-2 border-gray-700 border-t-transparent rounded-full"></div> Exporting...';
         (btn as HTMLButtonElement).disabled = true;
 
         try {
@@ -985,7 +1207,7 @@ class TransitTopographyApp {
                 { color: 'rgb(16, 185, 129)', label: '10-15' },
                 { color: 'rgb(132, 204, 22)', label: '15-20' },
                 { color: 'rgb(250, 204, 21)', label: '20-25' },
-                { color: 'rgb(249, 115, 22)', label: '25-30' }
+                { color: 'rgb(249, 115, 22)', label: '25-30' },
             ];
 
             const blockWidth = (legendWidth - 20) / colors.length;
@@ -1016,19 +1238,85 @@ class TransitTopographyApp {
         }
     }
 
+    /**
+     * Export the current isochrone as GeoJSON contour lines (one
+     * MultiLineString per band boundary) for use in QGIS/kepler.gl/etc.
+     */
+    private exportGeoJSON(): void {
+        if (!this.canvasLayer?.dataReady) {
+            this.toast('Transit data not loaded yet — try again in a moment', 'error');
+            return;
+        }
+
+        try {
+            const field = this.canvasLayer.getTimeField(240, 240);
+            if (!field) {
+                this.toast('Could not compute the time field', 'error');
+                return;
+            }
+
+            const step = this.maxTime / 6;
+            const levels = [1, 2, 3, 4, 5, 6].map(k => k * step);
+            const geojson = buildContourGeoJSON(field, levels) as Record<string, unknown>;
+            geojson.metadata = {
+                app: 'Transit Topography',
+                city: this.currentCity,
+                origin: { lat: this.origin[0], lng: this.origin[1] },
+                maxTimeMinutes: this.maxTime,
+                hourOfDay: this.currentHour,
+                direction: this.routingDirection,
+                note: 'Contour levels in minutes; obstacles (water/buildings) not applied',
+                generatedAt: new Date().toISOString(),
+            };
+
+            trackEvent('export-geojson');
+            const blob = new Blob([JSON.stringify(geojson)], { type: 'application/geo+json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = `transit-topography-${this.currentCity}-contours-${Date.now()}.geojson`;
+            link.href = url;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 10_000);
+            this.toast('GeoJSON contours downloaded', 'success');
+        } catch (err) {
+            console.error('GeoJSON export failed:', err);
+            this.toast('GeoJSON export failed — please try again', 'error');
+        }
+    }
+
     // ── Recent searches (persisted) ──────────────────────────────────────
     private readonly RECENT_KEY = 'tt_recent_searches_v1';
-    private getRecentSearches(): Array<{ name: string; address: string; lat: number; lon: number; city?: string }> {
+    private getRecentSearches(): Array<{
+        name: string;
+        address: string;
+        lat: number;
+        lon: number;
+        city?: string;
+    }> {
         try {
             const raw = localStorage.getItem(this.RECENT_KEY);
             return raw ? JSON.parse(raw) : [];
-        } catch { return []; }
+        } catch {
+            return [];
+        }
     }
-    private addRecentSearch(entry: { name: string; address: string; lat: number; lon: number; city?: string }): void {
-        const list = this.getRecentSearches().filter(r => !(Math.abs(r.lat - entry.lat) < 1e-4 && Math.abs(r.lon - entry.lon) < 1e-4));
+    private addRecentSearch(entry: {
+        name: string;
+        address: string;
+        lat: number;
+        lon: number;
+        city?: string;
+    }): void {
+        const list = this.getRecentSearches().filter(
+            r => !(Math.abs(r.lat - entry.lat) < 1e-4 && Math.abs(r.lon - entry.lon) < 1e-4)
+        );
         list.unshift(entry);
         const trimmed = list.slice(0, 5);
-        try { localStorage.setItem(this.RECENT_KEY, JSON.stringify(trimmed)); } catch {}
+        try {
+            localStorage.setItem(this.RECENT_KEY, JSON.stringify(trimmed));
+        } catch {
+            /* storage full or unavailable */
+        }
         this.renderRecentSearches();
     }
     private renderRecentSearches(): void {
@@ -1042,7 +1330,7 @@ class TransitTopographyApp {
         }
         container.classList.remove('hidden');
         container.innerHTML = '';
-        recents.forEach((r) => {
+        recents.forEach(r => {
             const chip = document.createElement('button');
             chip.className = 'recent-chip';
             chip.type = 'button';
@@ -1051,7 +1339,8 @@ class TransitTopographyApp {
             chip.addEventListener('click', async () => {
                 if (r.city && CITIES[r.city] && r.city !== this.currentCity) {
                     this.currentCity = r.city;
-                    document.getElementById('city-title')!.textContent = CITIES[r.city]?.name || r.city;
+                    document.getElementById('city-title')!.textContent =
+                        CITIES[r.city]?.name || r.city;
                     this.origin = [r.lat, r.lon];
                     await this.loadCity();
                 }
@@ -1074,14 +1363,19 @@ class TransitTopographyApp {
         label.addEventListener('click', () => {
             label.classList.add('hidden');
             container.classList.remove('hidden');
-            input.value = "";
+            input.value = '';
             input.focus();
         });
+
+        const hideSuggestions = () => {
+            list.classList.add('hidden');
+            input.setAttribute('aria-expanded', 'false');
+        };
 
         const fetchSuggestions = debounce(async (rawQuery: unknown) => {
             const query = rawQuery as string;
             if (!query || query.length < 3) {
-                list.classList.add('hidden');
+                hideSuggestions();
                 return;
             }
 
@@ -1096,7 +1390,7 @@ class TransitTopographyApp {
                     if (resp.ok) {
                         data = await resp.json();
                     } else if (resp.status !== 404) {
-                        throw new Error("LocationIQ API Error: " + resp.statusText);
+                        throw new Error('LocationIQ API Error: ' + resp.statusText);
                     }
                 }
 
@@ -1104,61 +1398,81 @@ class TransitTopographyApp {
                 if (!data || data.length === 0) {
                     const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(normalizedQuery)}&limit=5&addressdetails=1`;
                     const resp = await fetch(nomUrl);
-                    if (!resp.ok) throw new Error("Nominatim error: " + resp.statusText);
+                    if (!resp.ok) throw new Error('Nominatim error: ' + resp.statusText);
                     data = await resp.json();
                 }
 
                 this.renderSuggestions(data, list, input, container, label);
             } catch (e) {
-                console.error("Search error", e);
+                console.error('Search error', e);
                 this.toast('Address search unavailable — please try again', 'error');
             }
         }, 300);
 
-        input.addEventListener('input', (e) => fetchSuggestions((e.target as HTMLInputElement).value));
+        input.addEventListener('input', e =>
+            fetchSuggestions((e.target as HTMLInputElement).value)
+        );
 
-        input.addEventListener('keydown', (e) => {
+        input.addEventListener('keydown', e => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 const firstItem = list.querySelector('li');
                 if (firstItem) (firstItem as HTMLElement).click();
             }
             if (e.key === 'Escape') {
-                list.classList.add('hidden');
+                hideSuggestions();
                 container.classList.add('hidden');
                 label.classList.remove('hidden');
             }
         });
 
-        document.addEventListener('click', (e) => {
-            if (!container.classList.contains('hidden') && !container.contains(e.target as Node) && !label.contains(e.target as Node)) {
-                list.classList.add('hidden');
+        document.addEventListener('click', e => {
+            if (
+                !container.classList.contains('hidden') &&
+                !container.contains(e.target as Node) &&
+                !label.contains(e.target as Node)
+            ) {
+                hideSuggestions();
                 container.classList.add('hidden');
                 label.classList.remove('hidden');
             }
         });
     }
 
-    private renderSuggestions(results: any[], list: HTMLElement, input: HTMLInputElement, container: HTMLElement, label: HTMLElement): void {
+    private renderSuggestions(
+        results: any[],
+        list: HTMLElement,
+        input: HTMLInputElement,
+        container: HTMLElement,
+        label: HTMLElement
+    ): void {
         list.innerHTML = '';
         if (!results || results.length === 0) {
             list.classList.add('hidden');
+            input.setAttribute('aria-expanded', 'false');
             return;
         }
 
         results.forEach((item: any) => {
             const li = document.createElement('li');
-            li.className = "px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 text-sm text-gray-700 last:border-0";
+            li.className =
+                'px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 text-sm text-gray-700 last:border-0';
+            li.setAttribute('role', 'option');
 
-            const name = item.display_name.split(',')[0];
-            const address = item.display_name.substring(name.length + 2);
+            // Build with textContent only — display_name is remote, untrusted data.
+            const displayName: string = item.display_name || '';
+            const name = displayName.split(',')[0];
+            const address = displayName.substring(name.length + 2);
 
-            li.innerHTML = `
-                <div class="font-semibold text-gray-900">${name}</div>
-                <div class="text-xs text-gray-500 truncate">${address}</div>
-            `;
+            const nameEl = document.createElement('div');
+            nameEl.className = 'font-semibold text-gray-900';
+            nameEl.textContent = name;
+            const addressEl = document.createElement('div');
+            addressEl.className = 'text-xs text-gray-500 truncate';
+            addressEl.textContent = address;
+            li.append(nameEl, addressEl);
 
-            li.addEventListener('click', async (e) => {
+            li.addEventListener('click', async e => {
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -1168,6 +1482,7 @@ class TransitTopographyApp {
                 if (isNaN(lat) || isNaN(lon)) return;
 
                 list.classList.add('hidden');
+                input.setAttribute('aria-expanded', 'false');
                 container.classList.add('hidden');
                 label.classList.remove('hidden');
 
@@ -1176,10 +1491,14 @@ class TransitTopographyApp {
 
                 if (detectedCity && detectedCity !== this.currentCity) {
                     this.currentCity = detectedCity;
-                    document.getElementById('city-title')!.textContent = CITIES[detectedCity]?.name || detectedCity;
+                    document.getElementById('city-title')!.textContent =
+                        CITIES[detectedCity]?.name || detectedCity;
 
                     document.querySelectorAll('.city-chip').forEach(chip => {
-                        chip.classList.toggle('active', (chip as HTMLElement).dataset.city === detectedCity);
+                        chip.classList.toggle(
+                            'active',
+                            (chip as HTMLElement).dataset.city === detectedCity
+                        );
                     });
 
                     this.origin = [lat, lon];
@@ -1189,7 +1508,7 @@ class TransitTopographyApp {
                 this.origin = [lat, lon];
                 this.originMarker!.setLatLng([lat, lon]);
                 document.getElementById('origin-label')!.innerText = name;
-                updateUrl(this.currentCity, lat, lon, this.currentHour, this.routingDirection);
+                this.updateShareUrl();
 
                 // Update all render data BEFORE setView so the moveend-triggered
                 // redraw uses the correct origin and computed times.
@@ -1216,8 +1535,9 @@ class TransitTopographyApp {
                 this.addRecentSearch({
                     name,
                     address: address || displayName,
-                    lat, lon,
-                    city: this.currentCity
+                    lat,
+                    lon,
+                    city: this.currentCity,
                 });
             });
 
@@ -1225,21 +1545,21 @@ class TransitTopographyApp {
         });
 
         list.classList.remove('hidden');
+        input.setAttribute('aria-expanded', 'true');
     }
 
     private initDataFetching(): void {
         const btn = document.getElementById('fetch-stations-btn')!;
         const citySelect = document.getElementById('city-select') as HTMLSelectElement;
-        const busToggle = document.getElementById('bus-toggle') as HTMLInputElement;
 
-        citySelect.addEventListener('change', (e) => {
+        citySelect.addEventListener('change', e => {
             const cityKey = (e.target as HTMLSelectElement).value;
             const city = CITIES[cityKey];
             if (city && city.center) {
                 this.currentCity = cityKey;
                 this.origin = [...city.center] as [number, number];
                 this.map!.setView(this.origin, city.zoom);
-                this.updateOrigin(this.origin[0], this.origin[1], "City Center");
+                this.updateOrigin(this.origin[0], this.origin[1], 'City Center');
                 this.updateModeAvailability();
                 this.loadCity();
             }
@@ -1282,7 +1602,7 @@ class TransitTopographyApp {
                         try {
                             await this.transitFetcher.loadStaticGraph(file, false);
                         } catch (e) {
-                            console.warn("Bus data not found:", e);
+                            console.warn('Bus data not found:', e);
                         }
                     }
                 }
@@ -1331,10 +1651,13 @@ class TransitTopographyApp {
             this.posterTab.transitGraph = this.transitGraph;
             this.posterTab.waterMask = this.waterMask;
             this.posterTab.walkingNetwork = this.walkingNetwork;
-
         } catch (err) {
             console.error(err);
-            this.toast(`Failed to load ${cityKey.toUpperCase()}: ${(err as Error).message}`, 'error', 4000);
+            this.toast(
+                `Failed to load ${cityKey.toUpperCase()}: ${(err as Error).message}`,
+                'error',
+                4000
+            );
         } finally {
             loading.classList.add('hidden');
         }
@@ -1446,7 +1769,9 @@ class TransitTopographyApp {
 
         if (hasWalkingData) {
             container.classList.remove('hidden');
-            const walkingCityCount = Object.values(CITY_MANIFEST).filter(c => c.features.walking).length;
+            const walkingCityCount = Object.values(CITY_MANIFEST).filter(
+                c => c.features.walking
+            ).length;
             if (citiesLabel) citiesLabel.textContent = `(${walkingCityCount} cities)`;
             toggle.checked = true;
             this.walkingNetwork.enabled = true;
@@ -1471,7 +1796,9 @@ class TransitTopographyApp {
 
         if (busLabel) {
             busLabel.classList.toggle('text-gray-400', !(manifest?.features.bus ?? false));
-            busLabel.textContent = manifest?.features.bus ? 'Include Buses' : 'Bus Data Unavailable';
+            busLabel.textContent = manifest?.features.bus
+                ? 'Include Buses'
+                : 'Bus Data Unavailable';
         }
     }
 
@@ -1480,16 +1807,16 @@ class TransitTopographyApp {
         const addr = addressString.toLowerCase();
 
         const cityPatterns: Record<string, string[]> = {
-            'nyc': ['new york', 'manhattan', 'brooklyn', 'queens', 'bronx', 'staten island', 'nyc'],
-            'sf': ['san francisco', 'sf', 'bay area'],
-            'boston': ['boston', 'cambridge, ma', 'somerville, ma'],
-            'chicago': ['chicago'],
-            'dc': ['washington, d.c.', 'washington dc', 'district of columbia', 'd.c.'],
-            'la': ['los angeles', 'la, ca', 'santa monica', 'hollywood'],
-            'seattle': ['seattle', 'king county'],
-            'portland': ['portland, or', 'portland, oregon'],
-            'philly': ['philadelphia', 'philly'],
-            'toronto': ['toronto', 'ontario, canada']
+            nyc: ['new york', 'manhattan', 'brooklyn', 'queens', 'bronx', 'staten island', 'nyc'],
+            sf: ['san francisco', 'sf', 'bay area'],
+            boston: ['boston', 'cambridge, ma', 'somerville, ma'],
+            chicago: ['chicago'],
+            dc: ['washington, d.c.', 'washington dc', 'district of columbia', 'd.c.'],
+            la: ['los angeles', 'la, ca', 'santa monica', 'hollywood'],
+            seattle: ['seattle', 'king county'],
+            portland: ['portland, or', 'portland, oregon'],
+            philly: ['philadelphia', 'philly'],
+            toronto: ['toronto', 'ontario, canada'],
         };
 
         for (const [cityKey, patterns] of Object.entries(cityPatterns)) {
@@ -1509,12 +1836,29 @@ class TransitTopographyApp {
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     const app = new TransitTopographyApp();
-    app.init();
+    app.init().catch(err => {
+        console.error('Failed to initialize Transit Topography:', err);
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.classList.remove('hidden');
+            const text = overlay.querySelector('.loading-text');
+            if (text) {
+                text.textContent =
+                    'Something went wrong starting the app — please reload the page.';
+            }
+        }
+    });
     (window as any).transitApp = app;
+
+    window.addEventListener('unhandledrejection', e => {
+        console.error('Unhandled promise rejection:', e.reason);
+    });
+    window.addEventListener('offline', () => app.notifyOffline());
+    window.addEventListener('online', () => app.notifyOnline());
 
     if ('serviceWorker' in navigator && import.meta.env.PROD) {
         const serviceWorkerUrl = `${import.meta.env.BASE_URL}sw.js`;
-        navigator.serviceWorker.register(serviceWorkerUrl).catch((err) => {
+        navigator.serviceWorker.register(serviceWorkerUrl).catch(err => {
             console.warn('Service worker registration failed:', err);
         });
     }

@@ -8,12 +8,12 @@
 
 /** RGB stops for the 6 travel-time bands, nearest to farthest. */
 export const BAND_STOPS: ReadonlyArray<readonly [number, number, number]> = [
-    [27, 95, 214],   // #1b5fd6 cobalt
-    [0, 166, 166],   // #00a6a6 teal
-    [49, 183, 111],  // #31b76f green
-    [215, 170, 34],  // #d7aa22 gold
-    [241, 132, 57],  // #f18439 orange
-    [225, 79, 71],   // #e14f47 coral
+    [27, 95, 214], // #1b5fd6 cobalt
+    [0, 166, 166], // #00a6a6 teal
+    [49, 183, 111], // #31b76f green
+    [215, 170, 34], // #d7aa22 gold
+    [241, 132, 57], // #f18439 orange
+    [225, 79, 71], // #e14f47 coral
 ];
 
 export const NUM_BANDS = BAND_STOPS.length;
@@ -31,7 +31,11 @@ export function getBandIndex(minutes: number, maxTime: number): number {
     return Math.floor(getBandPosition(minutes, maxTime));
 }
 
-export function getColor(minutes: number, opacity: number, maxTime: number = 30): [number, number, number, number] {
+export function getColor(
+    minutes: number,
+    opacity: number,
+    maxTime: number = 30
+): [number, number, number, number] {
     if (minutes >= maxTime) {
         return [0, 0, 0, 0]; // Transparent
     }

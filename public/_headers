@@ -1,0 +1,20 @@
+# Netlify security & caching headers (ignored by GitHub Pages)
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://gc.zgo.at; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://gc.zgo.at https://transit-topography.goatcounter.com; connect-src 'self' https://nominatim.openstreetmap.org https://api.locationiq.com https://gc.zgo.at https://transit-topography.goatcounter.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
+
+# Vite fingerprints asset filenames — safe to cache forever
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Transit datasets update occasionally — cache for a week
+/transit_data/*
+  Cache-Control: public, max-age=604800
+
+# The service worker must always revalidate so new deployments activate
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate

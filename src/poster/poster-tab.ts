@@ -13,7 +13,8 @@ import type { TransitGraph } from '../core/transit-graph';
 import type { WaterMask } from '../masks/water-mask';
 import type { WalkingNetwork } from '../core/walking-network';
 
-const LOCATIONIQ_API_KEY = import.meta.env.VITE_LOCATIONIQ_KEY || (window as any).LOCATIONIQ_API_KEY || '';
+const LOCATIONIQ_API_KEY =
+    import.meta.env.VITE_LOCATIONIQ_KEY || (window as any).LOCATIONIQ_API_KEY || '';
 
 export class PosterTab {
     // Poster settings
@@ -127,11 +128,13 @@ export class PosterTab {
     }
 
     private initThemeSelection(): void {
-        document.getElementById('poster-theme-grid')!.addEventListener('click', (e) => {
+        document.getElementById('poster-theme-grid')!.addEventListener('click', e => {
             const swatch = (e.target as HTMLElement).closest('.poster-theme-swatch') as HTMLElement;
             if (!swatch?.dataset.themeId) return;
 
-            document.querySelectorAll('.poster-theme-swatch').forEach(s => s.classList.remove('active'));
+            document
+                .querySelectorAll('.poster-theme-swatch')
+                .forEach(s => s.classList.remove('active'));
             swatch.classList.add('active');
             this.selectedTheme = swatch.dataset.themeId;
         });
@@ -140,11 +143,13 @@ export class PosterTab {
     // ── Aspect ratio ───────────────────────────────────────────────────────
 
     private initRatioSelection(): void {
-        document.getElementById('poster-ratio-group')!.addEventListener('click', (e) => {
+        document.getElementById('poster-ratio-group')!.addEventListener('click', e => {
             const btn = (e.target as HTMLElement).closest('.poster-ratio-btn') as HTMLElement;
             if (!btn?.dataset.ratio) return;
 
-            document.querySelectorAll('.poster-ratio-btn').forEach(b => b.classList.remove('active'));
+            document
+                .querySelectorAll('.poster-ratio-btn')
+                .forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             this.selectedRatio = btn.dataset.ratio;
         });
@@ -176,7 +181,8 @@ export class PosterTab {
         // Initialize label
         const cityData = CITIES[this.selectedCity];
         if (cityData) {
-            document.getElementById('poster-city-label')!.textContent = `${cityData.flag} ${cityData.name}`;
+            document.getElementById('poster-city-label')!.textContent =
+                `${cityData.flag} ${cityData.name}`;
         }
     }
 
@@ -190,7 +196,10 @@ export class PosterTab {
         const doSearch = (query: string) => {
             clearTimeout(searchTimer);
             searchTimer = setTimeout(async () => {
-                if (query.length < 3) { list.classList.add('hidden'); return; }
+                if (query.length < 3) {
+                    list.classList.add('hidden');
+                    return;
+                }
 
                 try {
                     let results: any[] = [];
@@ -219,18 +228,22 @@ export class PosterTab {
 
                     for (const r of results) {
                         const li = document.createElement('li');
-                        li.className = 'px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0';
+                        li.className =
+                            'px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0';
                         li.textContent = r.display_name;
                         li.addEventListener('click', () => {
                             this.selectedOrigin = [parseFloat(r.lat), parseFloat(r.lon)];
                             this.selectedOriginLabel = r.display_name.split(',')[0];
-                            document.getElementById('poster-address-label')!.textContent = this.selectedOriginLabel;
+                            document.getElementById('poster-address-label')!.textContent =
+                                this.selectedOriginLabel;
                             input.value = '';
                             list.classList.add('hidden');
                         });
                         list.appendChild(li);
                     }
-                } catch { /* ignore search errors */ }
+                } catch {
+                    /* ignore search errors */
+                }
             }, 300);
         };
 
@@ -270,7 +283,9 @@ export class PosterTab {
             originLabel: this.selectedOriginLabel,
             themeId: this.selectedTheme,
             aspectRatio: this.selectedRatio as PosterConfig['aspectRatio'],
-            maxTime: parseInt((document.getElementById('poster-max-time') as HTMLSelectElement).value),
+            maxTime: parseInt(
+                (document.getElementById('poster-max-time') as HTMLSelectElement).value
+            ),
             hourOfDay: this.currentHour,
             includeBuses: false,
         };
@@ -282,12 +297,14 @@ export class PosterTab {
             onProgress: (pct, label) => {
                 document.getElementById('poster-progress-pct')!.textContent = `${pct}%`;
                 document.getElementById('poster-progress-label')!.textContent = label;
-                (document.getElementById('poster-progress-bar') as HTMLElement).style.width = `${pct}%`;
+                (document.getElementById('poster-progress-bar') as HTMLElement).style.width =
+                    `${pct}%`;
             },
-            onComplete: (blob) => {
+            onComplete: blob => {
                 this.resultBlob = blob;
                 this.resultUrl = URL.createObjectURL(blob);
-                (document.getElementById('poster-preview') as HTMLImageElement).src = this.resultUrl;
+                (document.getElementById('poster-preview') as HTMLImageElement).src =
+                    this.resultUrl;
                 document.getElementById('poster-result')!.classList.remove('hidden');
                 document.getElementById('poster-progress')!.classList.add('hidden');
                 btn.disabled = false;
@@ -302,7 +319,7 @@ export class PosterTab {
                     a.click();
                 };
             },
-            onError: (msg) => {
+            onError: msg => {
                 console.error('Poster generation error:', msg);
                 btn.disabled = false;
                 btn.textContent = 'Render Poster';
@@ -322,7 +339,7 @@ export class PosterTab {
             try {
                 await this.onCityChangeRequested(this.selectedCity);
                 this.currentCityKey = this.selectedCity;
-            } catch (err) {
+            } catch {
                 btn.disabled = false;
                 btn.textContent = 'Render Poster';
                 document.getElementById('poster-progress')!.classList.add('hidden');

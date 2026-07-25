@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Data files are fetched by the app, not useful to crawlers
+Disallow: /transit_data/

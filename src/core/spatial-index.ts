@@ -16,9 +16,9 @@ export class SpatialIndex {
 
     private _getKey(lat: number, lon: number): string {
         const metersPerDegreeLat = 111000;
-        const metersPerDegreeLon = 111000 * Math.cos(lat * Math.PI / 180);
-        const y = Math.floor(lat * metersPerDegreeLat / this.cellSize);
-        const x = Math.floor(lon * metersPerDegreeLon / this.cellSize);
+        const metersPerDegreeLon = 111000 * Math.cos((lat * Math.PI) / 180);
+        const y = Math.floor((lat * metersPerDegreeLat) / this.cellSize);
+        const x = Math.floor((lon * metersPerDegreeLon) / this.cellSize);
         return `${x},${y}`;
     }
 
@@ -38,10 +38,10 @@ export class SpatialIndex {
     query(lat: number, lon: number, radiusMeters: number): Station[] {
         const results: Station[] = [];
         const metersPerDegreeLat = 111000;
-        const metersPerDegreeLon = 111000 * Math.cos(lat * Math.PI / 180);
+        const metersPerDegreeLon = 111000 * Math.cos((lat * Math.PI) / 180);
         const cellsToCheck = Math.ceil(radiusMeters / this.cellSize) + 1;
-        const centerY = Math.floor(lat * metersPerDegreeLat / this.cellSize);
-        const centerX = Math.floor(lon * metersPerDegreeLon / this.cellSize);
+        const centerY = Math.floor((lat * metersPerDegreeLat) / this.cellSize);
+        const centerX = Math.floor((lon * metersPerDegreeLon) / this.cellSize);
 
         for (let dy = -cellsToCheck; dy <= cellsToCheck; dy++) {
             for (let dx = -cellsToCheck; dx <= cellsToCheck; dx++) {
@@ -60,12 +60,12 @@ export class SpatialIndex {
         const results: Station[] = [];
         const centerLat = (south + north) / 2;
         const metersPerDegreeLat = 111000;
-        const metersPerDegreeLon = 111000 * Math.cos(centerLat * Math.PI / 180);
+        const metersPerDegreeLon = 111000 * Math.cos((centerLat * Math.PI) / 180);
 
-        const minY = Math.floor(south * metersPerDegreeLat / this.cellSize);
-        const maxY = Math.floor(north * metersPerDegreeLat / this.cellSize);
-        const minX = Math.floor(west * metersPerDegreeLon / this.cellSize);
-        const maxX = Math.floor(east * metersPerDegreeLon / this.cellSize);
+        const minY = Math.floor((south * metersPerDegreeLat) / this.cellSize);
+        const maxY = Math.floor((north * metersPerDegreeLat) / this.cellSize);
+        const minX = Math.floor((west * metersPerDegreeLon) / this.cellSize);
+        const maxX = Math.floor((east * metersPerDegreeLon) / this.cellSize);
 
         for (let y = minY; y <= maxY; y++) {
             for (let x = minX; x <= maxX; x++) {
@@ -73,8 +73,7 @@ export class SpatialIndex {
                 const cellStations = this.grid.get(key);
                 if (cellStations) {
                     for (const s of cellStations) {
-                        if (s.lat >= south && s.lat <= north &&
-                            s.lon >= west && s.lon <= east) {
+                        if (s.lat >= south && s.lat <= north && s.lon >= west && s.lon <= east) {
                             results.push(s);
                         }
                     }

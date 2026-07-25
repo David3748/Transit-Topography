@@ -1,18 +1,25 @@
-const CACHE_NAME = 'transit-topography-v2';
+// BUILD_VERSION is replaced with the git hash at build time (see vite.config.ts),
+// so app-shell and transit-data caches invalidate automatically on every deploy.
+const BUILD_VERSION = '__TT_BUILD_VERSION__';
+const CACHE_NAME = `transit-topography-${BUILD_VERSION}`;
+const DATA_CACHE = `transit-topography-data-${BUILD_VERSION}`;
+// Basemap tiles are immutable content — keep a stable cache across deploys.
 const TILE_CACHE = 'transit-topography-tiles-v1';
-const DATA_CACHE = 'transit-topography-data-v1';
+const ACTIVE_CACHES = [CACHE_NAME, DATA_CACHE, TILE_CACHE];
 
 self.addEventListener('install', () => {
     self.skipWaiting();
 });
 
-self.addEventListener('activate', (event) => {
+self.addEventListener('activate', event => {
     event.waitUntil(
-        caches.keys().then((keys) => Promise.all(
-            keys
-                .filter((key) => ![CACHE_NAME, TILE_CACHE, DATA_CACHE].includes(key))
-                .map((key) => caches.delete(key))
-        ))
+        caches
+            .keys()
+            .then(keys =>
+                Promise.all(
+                    keys.filter(key => !ACTIVE_CACHES.includes(key)).map(key => caches.delete(key))
+                )
+            )
     );
     self.clients.claim();
 });
@@ -47,7 +54,7 @@ async function networkFirst(request, cacheName) {
     }
 }
 
-self.addEventListener('fetch', (event) => {
+self.addEventListener('fetch', event => {
     if (event.request.method !== 'GET') return;
 
     const url = new URL(event.request.url);
@@ -59,7 +66,12 @@ self.addEventListener('fetch', (event) => {
 
     if (url.hostname.includes('basemaps.cartocdn.com')) {
         const transparentPng = new Response(
-            Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), c => c.charCodeAt(0)),
+            Uint8Array.from(
+                atob(
+                    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+                ),
+                c => c.charCodeAt(0)
+            ),
             { headers: { 'Content-Type': 'image/png' } }
         );
         event.respondWith(cacheFirst(event.request, TILE_CACHE, transparentPng));

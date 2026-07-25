@@ -1,5 +1,6 @@
 import { BinaryHeap } from './binary-heap';
 import { distHaversine } from '../utils/haversine';
+import { WALK_SPEED_MPS } from '../data/city-config';
 import type { WalkingNode, WalkingData, OptimizedWalkingData } from '../types';
 
 export class WalkingNetwork {
@@ -13,6 +14,8 @@ export class WalkingNetwork {
 
     // Pre-computed walking times from current origin
     walkingTimes: Map<string, number> = new Map();
+    /** Incremented on every recompute — lets consumers cache derived grids. */
+    version: number = 0;
     private currentOrigin: { lat: number; lon: number } | null = null;
 
     clear(): void {
@@ -34,7 +37,6 @@ export class WalkingNetwork {
                     const cacheData = JSON.parse(cached);
                     if (Date.now() - cacheData.timestamp < 7 * 24 * 60 * 60 * 1000) {
                         data = cacheData.data;
-                        console.log(`Loaded walking network from cache`);
                     }
                 } catch {
                     console.warn('Walking cache parse error');
@@ -51,10 +53,13 @@ export class WalkingNetwork {
                 data = await resp.json();
 
                 try {
-                    localStorage.setItem(cacheKey, JSON.stringify({
-                        timestamp: Date.now(),
-                        data: data
-                    }));
+                    localStorage.setItem(
+                        cacheKey,
+                        JSON.stringify({
+                            timestamp: Date.now(),
+                            data: data,
+                        })
+                    );
                 } catch {
                     console.warn('Walking network too large to cache');
                 }
@@ -89,7 +94,10 @@ export class WalkingNetwork {
                     }
                 });
             } else {
-                const legacyData = data as { nodes: Array<{ id: string; lat: number; lon: number }>; edges: Array<{ from: string; to: string; time: number }> };
+                const legacyData = data as {
+                    nodes: Array<{ id: string; lat: number; lon: number }>;
+                    edges: Array<{ from: string; to: string; time: number }>;
+                };
                 legacyData.nodes.forEach(n => {
                     this.nodes.set(n.id, { id: n.id, lat: n.lat, lon: n.lon, neighbors: [] });
 
@@ -107,22 +115,25 @@ export class WalkingNetwork {
             }
 
             this.isLoaded = true;
-            console.log(`Walking Network: ${this.nodes.size} nodes loaded`);
             return true;
         } catch (err) {
-            console.warn("Walking network not available:", (err as Error).message);
+            console.warn('Walking network not available:', (err as Error).message);
             this.isLoaded = false;
             return false;
         }
     }
 
     private _getGridKey(lat: number, lon: number): string {
-        const y = Math.floor(lat * 111000 / this.gridCellSize);
-        const x = Math.floor(lon * 111000 * Math.cos(lat * Math.PI / 180) / this.gridCellSize);
+        const y = Math.floor((lat * 111000) / this.gridCellSize);
+        const x = Math.floor((lon * 111000 * Math.cos((lat * Math.PI) / 180)) / this.gridCellSize);
         return `${x},${y}`;
     }
 
-    findNearestNode(lat: number, lon: number, maxDist: number = 500): { node: { id: string; lat: number; lon: number }; dist: number } | null {
+    findNearestNode(
+        lat: number,
+        lon: number,
+        maxDist: number = 500
+    ): { node: { id: string; lat: number; lon: number }; dist: number } | null {
         if (!this.isLoaded) return null;
 
         const key = this._getGridKey(lat, lon);
@@ -158,16 +169,17 @@ export class WalkingNetwork {
     computeFromOrigin(originLat: number, originLon: number): void {
         if (!this.isLoaded || !this.enabled) return;
 
-        if (this.currentOrigin &&
+        if (
+            this.currentOrigin &&
             Math.abs(this.currentOrigin.lat - originLat) < 0.0001 &&
-            Math.abs(this.currentOrigin.lon - originLon) < 0.0001) {
+            Math.abs(this.currentOrigin.lon - originLon) < 0.0001
+        ) {
             return;
         }
 
-        const startTime = performance.now();
-
         this.walkingTimes.clear();
         this.currentOrigin = { lat: originLat, lon: originLon };
+        this.version++;
 
         const startResult = this.findNearestNode(originLat, originLon, 1000);
         if (!startResult) {
@@ -176,7 +188,7 @@ export class WalkingNetwork {
         }
 
         const pq = new BinaryHeap<{ id: string; time: number }>();
-        const startTimeWalk = startResult.dist / 1.3;
+        const startTimeWalk = startResult.dist / WALK_SPEED_MPS;
 
         this.walkingTimes.set(startResult.node.id, startTimeWalk);
         pq.push({ id: startResult.node.id, time: startTimeWalk });
@@ -194,14 +206,15 @@ export class WalkingNetwork {
 
                 if (newTime > 3600) continue;
 
-                if (!this.walkingTimes.has(neighbor.id) || newTime < this.walkingTimes.get(neighbor.id)!) {
+                if (
+                    !this.walkingTimes.has(neighbor.id) ||
+                    newTime < this.walkingTimes.get(neighbor.id)!
+                ) {
                     this.walkingTimes.set(neighbor.id, newTime);
                     pq.push({ id: neighbor.id, time: newTime });
                 }
             }
         }
-
-        console.log(`Walking network: ${this.walkingTimes.size} nodes in ${(performance.now() - startTime).toFixed(0)}ms`);
     }
 
     getWalkingTime(lat: number, lon: number): number | null {
@@ -214,7 +227,7 @@ export class WalkingNetwork {
         const nodeTime = this.walkingTimes.get(result.node.id);
         if (nodeTime === undefined) return null;
 
-        const lastMileTime = result.dist / 1.3;
+        const lastMileTime = result.dist / WALK_SPEED_MPS;
         return nodeTime + lastMileTime;
     }
 }

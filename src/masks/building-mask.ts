@@ -23,7 +23,6 @@ export class BuildingMask {
                     const cacheData = JSON.parse(cached);
                     if (Date.now() - cacheData.timestamp < 7 * 24 * 60 * 60 * 1000) {
                         data = cacheData.data;
-                        console.log(`Loaded building data from cache`);
                     }
                 } catch {
                     console.warn('Building cache parse error');
@@ -40,10 +39,13 @@ export class BuildingMask {
                 data = await resp.json();
 
                 try {
-                    localStorage.setItem(cacheKey, JSON.stringify({
-                        timestamp: Date.now(),
-                        data: data
-                    }));
+                    localStorage.setItem(
+                        cacheKey,
+                        JSON.stringify({
+                            timestamp: Date.now(),
+                            data: data,
+                        })
+                    );
                 } catch {
                     console.warn('Buildings too large to cache');
                 }
@@ -61,9 +63,8 @@ export class BuildingMask {
             });
 
             this.isLoaded = true;
-            console.log(`Building Mask loaded: ${this.polygons.length} buildings`);
         } catch (err) {
-            console.warn("Building data not available:", (err as Error).message);
+            console.warn('Building data not available:', (err as Error).message);
             this.isLoaded = false;
         }
     }
@@ -88,11 +89,14 @@ export class BuildingMask {
 
         this.polygons.forEach(poly => {
             const firstPt = poly[0];
-            if (firstPt[0] < south || firstPt[0] > north ||
-                firstPt[1] < west || firstPt[1] > east) {
-                const inBounds = poly.some(pt =>
-                    pt[0] >= south && pt[0] <= north &&
-                    pt[1] >= west && pt[1] <= east
+            if (
+                firstPt[0] < south ||
+                firstPt[0] > north ||
+                firstPt[1] < west ||
+                firstPt[1] > east
+            ) {
+                const inBounds = poly.some(
+                    pt => pt[0] >= south && pt[0] <= north && pt[1] >= west && pt[1] <= east
                 );
                 if (!inBounds) return;
             }

@@ -22,7 +22,6 @@ export class WaterMask {
                     const cacheData = JSON.parse(cached);
                     if (Date.now() - cacheData.timestamp < 7 * 24 * 60 * 60 * 1000) {
                         data = cacheData.data;
-                        console.log(`Loaded water data from cache`);
                     }
                 } catch {
                     console.warn('Water cache parse error');
@@ -35,10 +34,13 @@ export class WaterMask {
                 data = await resp.json();
 
                 try {
-                    localStorage.setItem(cacheKey, JSON.stringify({
-                        timestamp: Date.now(),
-                        data: data
-                    }));
+                    localStorage.setItem(
+                        cacheKey,
+                        JSON.stringify({
+                            timestamp: Date.now(),
+                            data: data,
+                        })
+                    );
                 } catch {
                     console.warn('Failed to cache water data (storage full?)');
                 }
@@ -61,9 +63,8 @@ export class WaterMask {
             });
 
             this.isLoaded = true;
-            console.log(`Water Mask loaded: ${this.polygons.length} polygons`);
         } catch (err) {
-            console.error("Error loading water mask:", err);
+            console.error('Error loading water mask:', err);
             this.isLoaded = false;
         }
     }

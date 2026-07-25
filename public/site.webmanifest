@@ -1,0 +1,24 @@
+{
+  "name": "Transit Topography",
+  "short_name": "Transit Topo",
+  "description": "Interactive transit isochrone maps for 28 cities — see how far public transport takes you in a given time.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#fcfbf7",
+  "theme_color": "#1b5fd6",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

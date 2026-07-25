@@ -7,6 +7,7 @@ declare const self: DedicatedWorkerGlobalScope;
 
 import { distHaversine } from '../utils/haversine';
 import { getColor, getBandIndex } from './color-scale';
+import { EXIT_WALK_FACTOR } from '../data/city-config';
 import type { RenderParams, MapBounds } from '../types';
 
 // Grid-based spatial index for stations
@@ -14,7 +15,10 @@ class WorkerSpatialIndex {
     private cellSize: number;
     private grid: Map<string, Array<{ lat: number; lon: number; time: number }>>;
 
-    constructor(stations: Array<{ lat: number; lon: number; time: number }>, cellSize: number = 500) {
+    constructor(
+        stations: Array<{ lat: number; lon: number; time: number }>,
+        cellSize: number = 500
+    ) {
         this.cellSize = cellSize;
         this.grid = new Map();
 
@@ -27,19 +31,23 @@ class WorkerSpatialIndex {
 
     _getKey(lat: number, lon: number): string {
         const metersPerDegreeLat = 111000;
-        const metersPerDegreeLon = 111000 * Math.cos(lat * Math.PI / 180);
-        const y = Math.floor(lat * metersPerDegreeLat / this.cellSize);
-        const x = Math.floor(lon * metersPerDegreeLon / this.cellSize);
+        const metersPerDegreeLon = 111000 * Math.cos((lat * Math.PI) / 180);
+        const y = Math.floor((lat * metersPerDegreeLat) / this.cellSize);
+        const x = Math.floor((lon * metersPerDegreeLon) / this.cellSize);
         return `${x},${y}`;
     }
 
-    query(lat: number, lon: number, radiusMeters: number): Array<{ lat: number; lon: number; time: number }> {
+    query(
+        lat: number,
+        lon: number,
+        radiusMeters: number
+    ): Array<{ lat: number; lon: number; time: number }> {
         const results: Array<{ lat: number; lon: number; time: number }> = [];
         const metersPerDegreeLat = 111000;
-        const metersPerDegreeLon = 111000 * Math.cos(lat * Math.PI / 180);
+        const metersPerDegreeLon = 111000 * Math.cos((lat * Math.PI) / 180);
         const cellsToCheck = Math.ceil(radiusMeters / this.cellSize) + 1;
-        const centerY = Math.floor(lat * metersPerDegreeLat / this.cellSize);
-        const centerX = Math.floor(lon * metersPerDegreeLon / this.cellSize);
+        const centerY = Math.floor((lat * metersPerDegreeLat) / this.cellSize);
+        const centerX = Math.floor((lon * metersPerDegreeLon) / this.cellSize);
 
         for (let dy = -cellsToCheck; dy <= cellsToCheck; dy++) {
             for (let dx = -cellsToCheck; dx <= cellsToCheck; dx++) {
@@ -52,7 +60,11 @@ class WorkerSpatialIndex {
     }
 }
 
-function getWalkingTimeFromGrid(lat: number, lng: number, walkingGrid: { data: number[]; size: number; bounds: MapBounds } | null): number | null {
+function getWalkingTimeFromGrid(
+    lat: number,
+    lng: number,
+    walkingGrid: { data: number[]; size: number; bounds: MapBounds } | null
+): number | null {
     if (!walkingGrid || !walkingGrid.data) return null;
 
     const { data, size, bounds } = walkingGrid;
@@ -75,9 +87,17 @@ function getWalkingTimeFromGrid(lat: number, lng: number, walkingGrid: { data: n
 
 function render(params: RenderParams): Uint8ClampedArray {
     const {
-        width, height, pixelSize, opacity, maxTime = 30,
-        origin, bounds, activeStations, obstacleData,
-        walkSpeedMps, walkingGrid
+        width,
+        height,
+        pixelSize,
+        opacity,
+        maxTime = 30,
+        origin,
+        bounds,
+        activeStations,
+        obstacleData,
+        walkSpeedMps,
+        walkingGrid,
     } = params;
 
     const data = new Uint8ClampedArray(width * height * 4);
@@ -139,7 +159,9 @@ function render(params: RenderParams): Uint8ClampedArray {
             }
 
             if (timeWalkDirect === Infinity) {
-                const pathIsSafe = walkingGrid ? isPathSafe(originX, originY, targetX, targetY) : true;
+                const pathIsSafe = walkingGrid
+                    ? isPathSafe(originX, originY, targetX, targetY)
+                    : true;
                 if (pathIsSafe) {
                     const distDirect = distHaversine(origin[0], origin[1], lat, lng);
                     timeWalkDirect = distDirect / walkSpeedMps;
@@ -155,7 +177,7 @@ function render(params: RenderParams): Uint8ClampedArray {
                 if (dLat + dLon > 0.03) continue;
 
                 const distExit = distHaversine(lat, lng, s.lat, s.lon);
-                const exitWalkTime = (distExit / walkSpeedMps) * 1.4;
+                const exitWalkTime = (distExit / walkSpeedMps) * EXIT_WALK_FACTOR;
                 const total = s.time + exitWalkTime;
 
                 if (total < timeTransit) {
@@ -172,8 +194,10 @@ function render(params: RenderParams): Uint8ClampedArray {
             const color = getColor(totalTimeMin, opacity, maxTime);
 
             if (totalTimeMin < maxTime) {
-                bandGrid[(y / pixelSize) * blocksW + (x / pixelSize)] =
-                    getBandIndex(totalTimeMin, maxTime);
+                bandGrid[(y / pixelSize) * blocksW + x / pixelSize] = getBandIndex(
+                    totalTimeMin,
+                    maxTime
+                );
             }
 
             for (let py = 0; py < pixelSize; py++) {
@@ -228,7 +252,7 @@ function drawContours(
         const idx = 4 * (py * width + px);
         if (data[idx + 3] === 0) return; // transparent side of a coastline
         const f = strong ? 0.5 : 0.62;
-        data[idx]     = data[idx] * f;
+        data[idx] = data[idx] * f;
         data[idx + 1] = data[idx + 1] * f;
         data[idx + 2] = data[idx + 2] * f;
         data[idx + 3] = Math.min(data[idx + 3] + (strong ? 80 : 64), 255);
@@ -273,13 +297,16 @@ self.onmessage = function (e: MessageEvent) {
     if (type === 'render') {
         try {
             const result = render(params);
-            self.postMessage({
-                type: 'complete',
-                data: result,
-                width: params.width,
-                height: params.height,
-                isPreview: params.isPreview || false
-            }, [result.buffer]);
+            self.postMessage(
+                {
+                    type: 'complete',
+                    data: result,
+                    width: params.width,
+                    height: params.height,
+                    isPreview: params.isPreview || false,
+                },
+                [result.buffer]
+            );
         } catch (err) {
             self.postMessage({ type: 'error', message: (err as Error).message });
         }

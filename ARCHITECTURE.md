@@ -1,599 +1,191 @@
-# Transit Topography - Architecture Documentation
+# Transit Topography — Architecture
 
-This document provides a comprehensive overview of Transit Topography's architecture, data structures, algorithms, and technical implementation.
-
-## Table of Contents
-
-1. [System Overview](#system-overview)
-2. [Architecture Diagram](#architecture-diagram)
-3. [Core Components](#core-components)
-4. [Data Flow](#data-flow)
-5. [Data Structures](#data-structures)
-6. [Algorithms](#algorithms)
-7. [Performance Optimizations](#performance-optimizations)
-8. [Browser Compatibility](#browser-compatibility)
-
----
+This document describes the current architecture of the Transit Topography web
+app as it exists in `src/` (TypeScript, built with Vite). The legacy pre-2025
+JavaScript app under `js/` and `transit_engine.js` is kept for reference only
+and is not part of the build.
 
 ## System Overview
 
-Transit Topography is a **client-side web application** that visualizes transit accessibility through isochrones (travel-time zones). The architecture follows a **modular design** with clear separation of concerns:
+Transit Topography is a fully client-side, statically hosted web app that draws
+transit isochrones (travel-time zones) for 28 cities. There is no server-side
+processing: all routing and rendering happen in the browser.
 
-- **Frontend**: Pure JavaScript with ES6 modules
-- **Rendering**: Leaflet.js with custom Canvas overlay
-- **Computation**: Web Workers for background processing
-- **Data**: Pre-generated JSON files from GTFS feeds
+- **Language/build:** TypeScript (strict), Vite 6, Tailwind CSS 3
+- **Map:** Leaflet with Carto basemap tiles
+- **Routing:** Custom Dijkstra over pre-generated transit graphs (GTFS-derived JSON)
+- **Rendering:** WebGL fragment-shader isochrone (default) → Web Worker CPU fallback → main-thread fallback
+- **Offline:** Hand-rolled service worker (`sw.js`), cache-versioned per build
 
-**Key Design Principles:**
-- Zero server-side processing (static hosting)
-- Progressive enhancement (fast preview → high quality)
-- Efficient spatial indexing for performance
-- Modular, maintainable codebase
-
----
-
-## Architecture Diagram
+## Repository Layout (current)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         User Interface                          │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────┐ │
-│  │   City     │  │   Time     │  │  Quality   │  │  Export  │ │
-│  │  Selector  │  │  Slider    │  │  Settings  │  │  Button  │ │
-│  └────────────┘  └────────────┘  └────────────┘  └──────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Application Layer                          │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │                       app.js                               │ │
-│  │  - Event handling     - State management                   │ │
-│  │  - UI updates         - Data orchestration                 │ │
-│  └────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-            │                    │                    │
-            ▼                    ▼                    ▼
-┌─────────────────┐  ┌────────────────────┐  ┌────────────────┐
-│  Transit Engine │  │  Spatial Index     │  │  Canvas Layer  │
-│  transit_engine │  │  spatial-index.js  │  │  canvas-layer  │
-│                 │  │                    │  │                │
-│  - Graph build  │  │  - Grid index      │  │  - Leaflet     │
-│  - Dijkstra     │  │  - Fast lookups    │  │    overlay     │
-│  - Pathfinding  │  │  - Nearest station │  │  - Canvas draw │
-└─────────────────┘  └────────────────────┘  └────────────────┘
-            │                                          │
-            ▼                                          ▼
-┌─────────────────────────────────────────┐  ┌────────────────┐
-│          Web Worker                     │  │   Leaflet Map  │
-│       render-worker.js                  │  │                │
-│                                         │  │  - Base tiles  │
-│  - Pixel-by-pixel calculation           │  │  - Panning     │
-│  - Isochrone rendering                  │  │  - Zooming     │
-│  - Non-blocking computation             │  │  - Markers     │
-└─────────────────────────────────────────┘  └────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         Data Layer                              │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────┐            │
-│  │   Transit   │  │   Walking    │  │   Water    │            │
-│  │   Networks  │  │   Networks   │  │  Polygons  │            │
-│  │  (*.json)   │  │(walking_*..) │  │(water_*...) │            │
-│  └─────────────┘  └──────────────┘  └────────────┘            │
-└─────────────────────────────────────────────────────────────────┘
+index.html              App shell (loaded by Vite)
+src/
+  main.ts               Application controller (map, UI wiring, state)
+  types/index.ts        Shared TypeScript interfaces
+  core/
+    transit-graph.ts    Station graph + Dijkstra (depart & arrive directions)
+    transit-fetcher.ts  Loads transit_data JSON into the graph
+    walking-network.ts  Street-network Dijkstra for last-mile times
+    spatial-index.ts    Grid index for fast station lookups
+    binary-heap.ts      Min-heap priority queue for Dijkstra
+  rendering/
+    canvas-layer.ts     Leaflet overlay; picks WebGL/worker/main-thread path
+    webgl-renderer.ts   GPU isochrone renderer (default)
+    render-worker.ts    CPU isochrone renderer in a Web Worker
+    color-scale.ts      Single source of truth for the travel-time palette
+  masks/
+    water-mask.ts       Water polygons used as walking obstacles
+    building-mask.ts    Building polygons used as walking obstacles
+  poster/
+    poster-tab.ts       Poster Studio UI (theme/format/time controls)
+    poster-renderer.ts  Orchestrates poster generation
+    poster-worker.ts    Off-main-thread poster rasterizer
+    poster-themes.ts    Poster color themes
+  data/
+    city-config.ts      CITIES registry, speeds, transfer penalty, tile URLs
+    city-manifest.ts    Per-city feature flags (bus/walking availability)
+  utils/                debounce, haversine, headway model, url-params,
+                        analytics (GoatCounter), focus-trap
+transit_data/           Pre-generated per-city graphs/masks (checked in)
+scripts/                Node validation/integration scripts (run in CI)
+tests/unit/             Vitest unit tests
+public/                 Static assets: icons, robots.txt, site.webmanifest,
+                        _headers (Netlify security/cache headers)
+sw.js                   Service worker (build-stamped into dist/)
 ```
 
----
-
-## Core Components
-
-### 1. Application Controller (`js/app.js`)
-
-**Responsibilities:**
-- Initialize application
-- Load city data
-- Handle user interactions
-- Manage application state
-- Coordinate between modules
-
-**Key Functions:**
-```javascript
-initApp()                  // Application initialization
-loadCityData(cityId)       // Load transit data for city
-setOrigin(lat, lon)        // Set isochrone origin point
-updateTime(minutes)        // Update travel time limit
-calculateIsochrone()       // Trigger isochrone calculation
-```
-
-### 2. Transit Engine (`transit_engine.js`)
-
-**Responsibilities:**
-- Build weighted graph from transit data
-- Implement Dijkstra's algorithm
-- Calculate shortest paths
-- Handle walking connections
-
-**Data Structures:**
-```javascript
-// Node in transit graph
-{
-    id: string,
-    name: string,
-    lat: number,
-    lon: number,
-    type: 'station' | 'stop'
-}
-
-// Edge between nodes
-{
-    from: nodeId,
-    to: nodeId,
-    time: number (minutes),
-    mode: 'walk' | 'subway' | 'bus' | 'tram'
-}
-```
-
-**Key Functions:**
-```javascript
-buildGraph(nodes, edges)        // Construct graph
-dijkstra(origin, maxTime)       // Find all reachable nodes
-getShortestPath(from, to)       // Get specific route
-```
-
-### 3. Spatial Index (`js/spatial-index.js`)
-
-**Responsibilities:**
-- Efficient station lookups
-- Nearest neighbor queries
-- Grid-based spatial partitioning
-
-**Algorithm:**
-- Divides map into grid cells (typically 0.01° × 0.01°)
-- Stores stations in appropriate cells
-- O(1) average lookup time
-
-**Key Functions:**
-```javascript
-buildIndex(stations)           // Build spatial grid
-getNearestStation(lat, lon)    // Find closest station
-getStationsInRadius(lat, lon, radius) // Range query
-```
-
-### 4. Canvas Layer (`js/canvas-layer.js`)
-
-**Responsibilities:**
-- Custom Leaflet overlay
-- High-performance rendering
-- Coordinate transformations
-
-**Implementation:**
-```javascript
-class CanvasLayer extends L.Layer {
-    onAdd(map)           // Add layer to map
-    onRemove(map)        // Remove layer
-    _update()            // Redraw on map change
-    _reset()             // Recalculate positions
-}
-```
-
-### 5. Render Worker (`js/render-worker.js`)
-
-**Responsibilities:**
-- Background computation
-- Pixel-by-pixel travel time calculation
-- Prevent UI blocking
-
-**Message Protocol:**
-```javascript
-// Main → Worker
-{
-    type: 'render',
-    data: { origin, maxTime, bounds, resolution }
-}
-
-// Worker → Main
-{
-    type: 'progress',
-    progress: 0.5  // 0-1
-}
-
-{
-    type: 'complete',
-    imageData: ImageData
-}
-```
-
-### 6. Error Handler (`js/error-handler.js`)
-
-**Responsibilities:**
-- Centralized error handling
-- User-friendly error messages
-- Error categorization and suggestions
-
-**Usage:**
-```javascript
-ErrorHandler.showError(
-    'Failed to load city data',
-    error,
-    'DATA_LOADING',
-    8000
-);
-```
-
----
-
-## Data Flow
-
-### Isochrone Calculation Flow
+## Runtime Architecture
 
 ```
-1. User Action
-   └─> Click map or search address
-       │
-       ▼
-2. Set Origin
-   └─> Update state with origin coordinates
-       │
-       ▼
-3. Find Nearest Station
-   └─> Spatial index lookup
-       │
-       ▼
-4. Build Graph
-   └─> Load transit + walking data
-       │
-       ▼
-5. Run Dijkstra
-   └─> Calculate shortest paths to all nodes
-       │
-       ▼
-6. Start Web Worker
-   └─> Pass graph and reachable nodes
-       │
-       ▼
-7. Pixel-by-Pixel Calculation
-   └─> For each pixel:
-       - Find nearest station
-       - Add walking time
-       - Determine color band
-       │
-       ▼
-8. Render to Canvas
-   └─> Draw ImageData on canvas overlay
-       │
-       ▼
-9. Display Result
-   └─> Show isochrone on map
+┌────────────────────────────── UI (index.html) ─────────────────────────────┐
+│ Explore panel   Poster Studio   City modal   Toasts   Keyboard shortcuts    │
+└───────────────────────────────────┬─────────────────────────────────────────┘
+                                    │
+                            src/main.ts (TransitTopographyApp)
+                                    │
+        ┌───────────────────────────┼───────────────────────────────┐
+        ▼                           ▼                               ▼
+ TransitGraph                WalkingNetwork                 IsochoneCanvasLayer
+ (Dijkstra over              (Dijkstra over street          (Leaflet overlay)
+  station graph,              network for last-mile)
+  depart/arrive)                     │                               │
+        │                            │                    ┌──────────┴──────────┐
+        ▼                            ▼                    ▼                     ▼
+ TransitFetcher.loadStaticGraph  walking_*.json    WebGLRenderer       RenderWorker (CPU)
+ (transit_data/*.json)                               (default)         (fallback)
+        │                                                               │
+        ▼                                                               ▼
+ WaterMask / BuildingMask (obstacle polygons)              Main-thread CPU (last resort)
 ```
 
-### City Loading Flow
+### Routing model
 
-```
-1. Select City
-   └─> User picks from dropdown
-       │
-       ▼
-2. Load Configuration
-   └─> Read cities_config.json
-       │
-       ▼
-3. Fetch Transit Data
-   └─> Load transit_data/city.json
-       │
-       ▼
-4. Fetch Walking Data (if available)
-   └─> Load transit_data/walking_city.json
-       │
-       ▼
-5. Fetch Geographic Data (optional)
-   └─> Load water_city.json, buildings_city.json
-       │
-       ▼
-6. Build Spatial Index
-   └─> Index all stations for fast lookup
-       │
-       ▼
-7. Initialize UI
-   └─> Enable controls, center map
-```
+- `TransitGraph.calculateNetworkTimes(entryNodes, profile)` runs Dijkstra seeded
+  with every station within 2 km of the origin. First-mile cost uses
+  street-network times when a walking network is loaded, otherwise straight-line
+  distance × the street-circuity factor (`EXIT_WALK_FACTOR = 1.4`, shared with
+  all render paths and the shader).
+  `profile` carries the time-of-day boarding wait (synthetic headway model in
+  `utils/headway.ts`), a transfer penalty charged **only on walk-transfer
+  links** between stations (line edges are penalty-free — dwell is baked into
+  the GTFS-derived speeds), a direction (`depart` or `arrive` — arrive traverses
+  the reversed graph for reverse isochrones), and a max-time cutoff.
+- `WalkingNetwork.computeFromOrigin` runs a second Dijkstra over the street
+  network (where available) so last-mile times follow streets instead of
+  straight lines. `generateTransferEdges` adds short walk links between nearby
+  stations via a grid index.
 
----
+### Rendering pipeline
 
-## Data Structures
+`IsochoneCanvasLayer` computes, per map viewport:
 
-### Transit Data Format (`transit_data/*.json`)
+1. Collect active stations (network times within padded bounds).
+2. Build an obstacle canvas from water/building masks.
+3. Rasterize the walking network into a coarse time grid.
+4. Render travel time → color band:
+   - **WebGL (default):** fragment shader evaluates the field per pixel; the
+     palette is generated from the same `BAND_STOPS` the CPU path uses. The
+     per-pixel station scan is capped at 8192 stations, keeping the fastest.
+   - **Worker (fallback):** same math on the CPU off-main-thread, with progress
+     events and progressive refinement (coarse 8 px preview → full quality).
+     The obstacle mask is transferred to the worker zero-copy.
+   - **Main thread (last resort):** identical CPU path inline.
+
+   The 150×150 walking-time grid is cached on (origin, bounds, network version)
+   so playback/slider/opacity changes skip its 22.5k lookups.
+5. `armReveal()` triggers a one-shot outward reveal animation on the next
+   completed full-quality render (skipped under `prefers-reduced-motion`).
+
+### Query & export paths
+
+- **Hover inspector / best-route overlay** query a grid index over the network
+  times (rebuilt on origin change), not a full station scan.
+- **PNG export** rasterizes the current canvas.
+- **GeoJSON export** samples the time field on a 240×240 lattice and extracts
+  isochrone contours with marching squares (`src/export/contours.ts`), one
+  MultiLineString per band boundary — usable in QGIS/kepler.gl.
+- **Share URLs** capture city, origin, hour, direction, maxTime and bus flag,
+  restored and validated on load (`src/utils/url-params.ts`).
+
+`getTravelTime(lat, lng)` powers the hover inspector and the right-click
+"best route" overlay (path reconstruction via Dijkstra predecessors).
+
+### Poster Studio
+
+`poster-tab.ts` → `poster-renderer.ts` → `poster-worker.ts` render high-res,
+themed PNG posters off the main thread using the same graph/masks/walking data.
+
+## Build & Deployment
+
+- `npm run build` = validate:data → test:routing → unit tests → typecheck →
+  `vite build`. The Vite plugin in `vite.config.ts` then copies `transit_data/`
+  and stamps `sw.js` with the git hash (`__TT_BUILD_VERSION__` → cache busting).
+- **GitHub Pages** via `.github/workflows/deploy.yml` (`VITE_BASE_URL=/Transit-Topography/`).
+- **Netlify** uses the default SPA publish of `dist/`; `public/_headers` adds
+  CSP/security headers and cache policies (assets immutable, transit_data 1
+  week, sw.js must-revalidate). GitHub Pages ignores `_headers`.
+- **CI:** `.github/workflows/ci.yml` gates PRs on format, lint, typecheck,
+  unit tests, data validation, routing integration tests, and a build.
+
+## Data Formats
+
+### Transit graph (`transit_data/<city>.json`, `*_bus.json`)
 
 ```json
-{
-  "nodes": [
-    {
-      "id": "station_123",
-      "name": "Central Station",
-      "lat": 40.7580,
-      "lon": -73.9855,
-      "type": "station"
-    }
-  ],
-  "edges": [
-    {
-      "from": "station_123",
-      "to": "station_456",
-      "time": 3.5,
-      "mode": "subway",
-      "line": "Red Line"
-    }
-  ]
-}
+{ "nodes": [{ "id": "...", "lat": 40.75, "lon": -73.97 }],
+  "edges": [{ "from": "a", "to": "b", "speed": 12.5 }] }
 ```
 
-### Walking Network Format (`transit_data/walking_*.json`)
+Edge weights are derived as `haversine(from, to) / speed` (seconds) at load time.
 
-```json
-{
-  "nodes": [
-    {
-      "id": "intersection_789",
-      "lat": 40.7582,
-      "lon": -73.9850
-    }
-  ],
-  "edges": [
-    {
-      "from": "intersection_789",
-      "to": "intersection_790",
-      "distance": 120.5  // meters
-    }
-  ]
-}
-```
+### Walking network (`transit_data/walking_<city>.json`)
 
-### Cities Configuration (`cities_config.json`)
+Optimized v2 format: `nodes` is a flat `[[lat, lon], ...]` array and `edges` are
+`[fromIdx, toIdx, seconds]`. A legacy object form is still accepted.
 
-```json
-{
-  "city_code": {
-    "name": "City Name",
-    "gtfs_url": "https://...",
-    "center": [lat, lon],
-    "zoom": 12,
-    "region": "north_america",
-    "flag": "🇺🇸",
-    "hidden": false
-  }
-}
-```
+### Masks (`transit_data/water_*.json`, `buildings_*.json`)
 
----
+Polygon arrays projected to the viewport and painted into an obstacle canvas;
+obstacle pixels block straight-line walking paths in the CPU render paths.
 
-## Algorithms
+## Testing & Quality Gates
 
-### Dijkstra's Algorithm
-
-**Purpose:** Find shortest paths from origin to all reachable nodes
-
-**Implementation:**
-```javascript
-function dijkstra(graph, startNode, maxTime) {
-    const distances = { [startNode]: 0 };
-    const previous = {};
-    const queue = new PriorityQueue();
-
-    queue.enqueue(startNode, 0);
-
-    while (!queue.isEmpty()) {
-        const current = queue.dequeue();
-        const currentTime = distances[current];
-
-        if (currentTime > maxTime) continue;
-
-        for (const edge of graph.getEdges(current)) {
-            const newTime = currentTime + edge.time;
-
-            if (newTime < (distances[edge.to] || Infinity)) {
-                distances[edge.to] = newTime;
-                previous[edge.to] = current;
-                queue.enqueue(edge.to, newTime);
-            }
-        }
-    }
-
-    return { distances, previous };
-}
-```
-
-**Complexity:**
-- Time: O((V + E) log V) with priority queue
-- Space: O(V)
-
-### Transfer Penalties
-
-- **Walk → Transit:** 0 minutes (free)
-- **Transit → Transit:** 5 minutes (realistic transfer)
-- **Transit → Walk:** 0 minutes (free)
-
-### Walking Speed
-
-- **Base speed:** 5 km/h (configurable)
-- **Calculation:** `time = distance_meters / (5000/60)` minutes
-
-### Progressive Rendering
-
-1. **Preview pass:** 8px resolution (fast)
-2. **Final pass:** 1px resolution (detailed)
-3. **Progressive refinement:** Show preview while calculating final
-
-**Benefits:**
-- Immediate visual feedback
-- Perceived performance improvement
-- Cancellable for new requests
-
----
-
-## Performance Optimizations
-
-### 1. Spatial Indexing
-
-**Problem:** Finding nearest station is O(N) for N stations
-
-**Solution:** Grid-based spatial index
-
-```
-Grid size: 0.01° × 0.01° (~1km × 1km)
-Lookup: O(1) average case
-Memory: O(N) for N stations
-```
-
-### 2. Web Workers
-
-**Problem:** Isochrone calculation blocks UI
-
-**Solution:** Offload to Web Worker
-
-**Benefits:**
-- UI remains responsive
-- Can be cancelled/interrupted
-- Parallel processing (future)
-
-### 3. Data Compression
-
-**Current:** JSON files (uncompressed)
-
-**Optimizations:**
-- Reduce coordinate precision (6 decimal places)
-- Simplify geometries (Douglas-Peucker)
-- Remove redundant data
-
-**Future:**
-- Gzip/Brotli compression
-- Binary formats (Protocol Buffers)
-- Chunked loading
-
-### 4. Tile-Based Caching
-
-**Strategy:** Cache isochrone tiles to reuse during pan/zoom
-
-**Implementation:**
-```javascript
-const tileCache = new Map();
-const tileKey = `${originLat},${originLon},${time},${zoom}`;
-tileCache.set(tileKey, imageData);
-```
-
-### 5. Debounced Rendering
-
-**Problem:** Too many redraws during map interactions
-
-**Solution:** Debounce with 150ms delay
-
-```javascript
-let renderTimeout;
-function requestRender() {
-    clearTimeout(renderTimeout);
-    renderTimeout = setTimeout(() => render(), 150);
-}
-```
-
-### 6. Viewport Culling
-
-**Strategy:** Only render stations/lines within viewport
-
-**Implementation:**
-```javascript
-const bounds = map.getBounds();
-const visibleStations = stations.filter(s =>
-    bounds.contains([s.lat, s.lon])
-);
-```
-
----
+| Command                 | Purpose                                            |
+| ----------------------- | -------------------------------------------------- |
+| `npm run test`          | Vitest unit tests (graph, heap, spatial, colors…)  |
+| `npm run validate:data` | city-config ↔ transit_data manifest consistency    |
+| `npm run test:routing`  | Integration: build real city graphs, sanity-check  |
+| `npm run typecheck`     | `tsc --noEmit` (strict)                            |
+| `npm run lint`          | ESLint 9 flat config (typescript-eslint)           |
+| `npm run format:check`  | Prettier                                           |
+| `npm run build`         | All of the above + production bundle               |
 
 ## Browser Compatibility
 
-### Required Features
-
-| Feature | Minimum Version |
-|---------|----------------|
-| ES6 Modules | Chrome 61, Firefox 60, Safari 11, Edge 16 |
-| Web Workers | All modern browsers |
-| Canvas API | All modern browsers |
-| Fetch API | Chrome 42, Firefox 39, Safari 10.1, Edge 14 |
-| Promise | Chrome 32, Firefox 29, Safari 8, Edge 12 |
-| Arrow Functions | Chrome 45, Firefox 22, Safari 10, Edge 12 |
-
-### Polyfills
-
-Currently **no polyfills** used. Minimum supported versions:
-
-- **Chrome:** 61+
-- **Firefox:** 60+
-- **Safari:** 11+
-- **Edge:** 79+ (Chromium-based)
-
-### Feature Detection
-
-```javascript
-// Check for required features
-if (!window.Worker) {
-    console.error('Web Workers not supported');
-}
-
-if (!window.fetch) {
-    console.error('Fetch API not supported');
-}
-```
-
----
-
-## Future Architecture Improvements
-
-### Planned Enhancements
-
-1. **TypeScript Migration**
-   - Type safety
-   - Better IDE support
-   - Catch errors at compile time
-
-2. **Build System**
-   - Bundler (Vite/Rollup)
-   - Minification
-   - Tree shaking
-
-3. **State Management**
-   - Centralized state object
-   - Pub/sub pattern
-   - Time-travel debugging
-
-4. **Testing Infrastructure**
-   - Unit tests (Jest/Vitest)
-   - Integration tests
-   - Visual regression tests
-
-5. **Performance Monitoring**
-   - Web Vitals tracking
-   - Performance marks
-   - Error tracking
-
-6. **Service Worker**
-   - Offline support
-   - Cache API
-   - Background sync
-
-7. **WebGL Rendering**
-   - GPU-accelerated rendering
-   - Handle larger datasets
-   - Smoother animations
-
----
-
-## References
-
-- [Leaflet Documentation](https://leafletjs.com/)
-- [Web Workers API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API)
-- [Canvas API](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API)
-- [Dijkstra's Algorithm](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm)
-- [GTFS Specification](https://gtfs.org/)
-
----
-
-**Last Updated:** 2026-01-15
+- Chrome/Edge 90+, Firefox 90+, Safari 15+ (ES2020, OffscreenCanvas optional).
+- WebGL preferred; automatic fallback to worker/main-thread rendering when
+  unavailable (`?webgl=0` or `localStorage tt_webgl='false'` forces the fallback).
+- Service worker registers only in production builds; app remains fully
+  functional without it.

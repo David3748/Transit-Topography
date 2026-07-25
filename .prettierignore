@@ -15,3 +15,11 @@ config.js
 # Cache
 .cache/
 *.log
+
+# Legacy / generated files (superseded by src/, kept for reference only)
+transit_engine.js
+config.js
+config.template.js
+cities_config.json
+.claude/
+.cursor/

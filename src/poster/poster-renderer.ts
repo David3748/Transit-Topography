@@ -11,8 +11,13 @@ import { distHaversine } from '../utils/haversine';
 import { getBoardingWaitSec } from '../utils/headway';
 import { CITIES, TRANSFER_PENALTY_SEC, WALK_SPEED_MPS } from '../data/city-config';
 import type {
-    PosterConfig, PosterBounds, PosterStation, PosterEdge,
-    PosterWorkerInput, PosterWorkerOutput, MapBounds
+    PosterConfig,
+    PosterBounds,
+    PosterStation,
+    PosterEdge,
+    PosterWorkerInput,
+    PosterWorkerOutput,
+    MapBounds,
 } from '../types';
 import PosterWorker from './poster-worker?worker';
 
@@ -62,7 +67,9 @@ export class PosterRenderer {
             const entryNodes = this.findEntryNodes(config.origin, transitGraph);
 
             if (entryNodes.length === 0) {
-                this.onError('No transit stations found near origin. Make sure the transit network is loaded.');
+                this.onError(
+                    'No transit stations found near origin. Make sure the transit network is loaded.'
+                );
                 return;
             }
 
@@ -70,7 +77,7 @@ export class PosterRenderer {
                 boardingWaitSec: boardingWait,
                 transferPenaltySec: TRANSFER_PENALTY_SEC,
                 direction: 'depart',
-                maxNetworkTimeSec: config.maxTime * 60 * 4
+                maxNetworkTimeSec: config.maxTime * 60 * 4,
             });
 
             const stations = this.collectStations(transitGraph, networkTimes, bounds);
@@ -98,7 +105,7 @@ export class PosterRenderer {
             this.worker.onmessage = (e: MessageEvent<PosterWorkerOutput>) => {
                 this.handleWorkerMessage(e.data, theme, config, bounds);
             };
-            this.worker.onerror = (err) => {
+            this.worker.onerror = err => {
                 this.onError(`Worker error: ${err.message}`);
             };
             this.worker.postMessage(workerInput);
@@ -124,13 +131,16 @@ export class PosterRenderer {
 
                     const canvas = this.applyTypography(
                         new Uint8ClampedArray(msg.imageData!),
-                        msg.width!, msg.height!,
-                        theme, config, bounds
+                        msg.width!,
+                        msg.height!,
+                        theme,
+                        config,
+                        bounds
                     );
 
                     this.onProgress(98, 'Encoding PNG...');
 
-                    canvas.toBlob((blob) => {
+                    canvas.toBlob(blob => {
                         if (blob) {
                             this.onComplete(blob);
                         } else {
@@ -153,8 +163,11 @@ export class PosterRenderer {
 
     private applyTypography(
         pixelData: Uint8ClampedArray,
-        width: number, height: number,
-        theme: PosterTheme, config: PosterConfig, _bounds: PosterBounds
+        width: number,
+        height: number,
+        theme: PosterTheme,
+        config: PosterConfig,
+        _bounds: PosterBounds
     ): HTMLCanvasElement {
         const canvas = document.createElement('canvas');
         canvas.width = width;
@@ -169,9 +182,8 @@ export class PosterRenderer {
         const cityName = cityData?.name || config.city;
 
         // ── Dark-theme detection ────────────────────────────────────────────
-        const bgColorStr = theme.background.type === 'solid'
-            ? theme.background.color
-            : theme.background.outer;
+        const bgColorStr =
+            theme.background.type === 'solid' ? theme.background.color : theme.background.outer;
         const bgR = parseInt(bgColorStr.slice(1, 3), 16);
         const bgG = parseInt(bgColorStr.slice(3, 5), 16);
         const bgB = parseInt(bgColorStr.slice(5, 7), 16);
@@ -180,7 +192,7 @@ export class PosterRenderer {
 
         // ── Bottom gradient backing panel (dark themes only) ────────────────
         if (isDark) {
-            const backH = Math.round(height * 0.30);
+            const backH = Math.round(height * 0.3);
             const backing = ctx.createLinearGradient(0, height - backH, 0, height);
             backing.addColorStop(0, 'rgba(0,0,0,0)');
             backing.addColorStop(0.55, 'rgba(0,0,0,0.22)');
@@ -190,32 +202,42 @@ export class PosterRenderer {
         }
 
         // ── Font & size constants ───────────────────────────────────────────
-        const titleSize  = Math.round(width * 0.068);
-        const subSize    = Math.round(width * 0.015);
-        const brandSize  = Math.round(width * 0.010);
-        const legendBarH = Math.round(height * 0.010);
-        const legendBarW = Math.round(width  * 0.22);
+        const titleSize = Math.round(width * 0.068);
+        const subSize = Math.round(width * 0.015);
+        const brandSize = Math.round(width * 0.01);
+        const legendBarH = Math.round(height * 0.01);
+        const legendBarW = Math.round(width * 0.22);
 
         // ── Bottom-up layout ────────────────────────────────────────────────
-        const brandY      = height - margin;
-        const coordY      = brandY  - Math.round(subSize * 2.0);
-        const addressY    = coordY  - Math.round(subSize * 1.9);
-        const titleY      = addressY - Math.round(titleSize * 1.2);
-        const sepY        = titleY  - Math.round(height * 0.018);
-        const legendLabelY = sepY   - Math.round(subSize * 1.8);
-        const legendBarY  = legendLabelY - legendBarH - Math.round(height * 0.007);
-        const legendTitleY = legendBarY  - Math.round(subSize * 1.3);
+        const brandY = height - margin;
+        const coordY = brandY - Math.round(subSize * 2.0);
+        const addressY = coordY - Math.round(subSize * 1.9);
+        const titleY = addressY - Math.round(titleSize * 1.2);
+        const sepY = titleY - Math.round(height * 0.018);
+        const legendLabelY = sepY - Math.round(subSize * 1.8);
+        const legendBarY = legendLabelY - legendBarH - Math.round(height * 0.007);
+        const legendTitleY = legendBarY - Math.round(subSize * 1.3);
 
         // ── Legend ──────────────────────────────────────────────────────────
-        this.drawLegend(ctx, theme, config.maxTime,
-            width, margin,
-            legendTitleY, legendBarY, legendBarW, legendBarH, legendLabelY,
-            subSize, brandSize);
+        this.drawLegend(
+            ctx,
+            theme,
+            config.maxTime,
+            width,
+            margin,
+            legendTitleY,
+            legendBarY,
+            legendBarW,
+            legendBarH,
+            legendLabelY,
+            subSize,
+            brandSize
+        );
 
         // ── Thin horizontal separator ───────────────────────────────────────
         ctx.save();
         ctx.strokeStyle = theme.subtitleColor;
-        ctx.globalAlpha = 0.30;
+        ctx.globalAlpha = 0.3;
         ctx.lineWidth = Math.max(1, Math.round(width * 0.0006));
         ctx.beginPath();
         ctx.moveTo(margin, sepY);
@@ -253,15 +275,20 @@ export class PosterRenderer {
 
     private drawLegend(
         ctx: CanvasRenderingContext2D,
-        theme: PosterTheme, maxTime: number,
-        _w: number, margin: number,
+        theme: PosterTheme,
+        maxTime: number,
+        _w: number,
+        margin: number,
         titleY: number,
-        barY: number, barW: number, barH: number,
+        barY: number,
+        barW: number,
+        barH: number,
         labelY: number,
-        subSize: number, _brandSize: number
+        subSize: number,
+        _brandSize: number
     ): void {
-        const labelSize   = Math.round(subSize * 0.80);
-        const titleSz     = Math.round(subSize * 0.72);
+        const labelSize = Math.round(subSize * 0.8);
+        const titleSz = Math.round(subSize * 0.72);
 
         // "TRAVEL TIME" label above bar
         ctx.font = `600 ${titleSz}px ${theme.titleFont}, Inter, sans-serif`;
@@ -313,18 +340,18 @@ export class PosterRenderer {
     ): PosterBounds {
         const radiusKm = maxTimeMin * 0.4;
         const deltaLat = radiusKm / 111;
-        const cosLat = Math.cos(origin[0] * Math.PI / 180);
+        const cosLat = Math.cos((origin[0] * Math.PI) / 180);
         const aspect = dims.width / dims.height;
 
         const latExtent = deltaLat;
-        const lngExtent = deltaLat * aspect / cosLat;
+        const lngExtent = (deltaLat * aspect) / cosLat;
 
         return {
             north: origin[0] + latExtent,
             south: origin[0] - latExtent,
-            east:  origin[1] + lngExtent,
-            west:  origin[1] - lngExtent,
-            width:  dims.width,
+            east: origin[1] + lngExtent,
+            west: origin[1] - lngExtent,
+            width: dims.width,
             height: dims.height,
         };
     }
@@ -357,7 +384,7 @@ export class PosterRenderer {
             const node = graph.nodes.get(id);
             if (!node) continue;
             if (node.lat < bounds.south - pad || node.lat > bounds.north + pad) continue;
-            if (node.lon < bounds.west - pad  || node.lon > bounds.east  + pad) continue;
+            if (node.lon < bounds.west - pad || node.lon > bounds.east + pad) continue;
 
             let isRail = false;
             for (const [neighborId, travelTime] of node.neighbors) {
@@ -365,7 +392,10 @@ export class PosterRenderer {
                 if (neighbor && travelTime > 0) {
                     const dist = distHaversine(node.lat, node.lon, neighbor.lat, neighbor.lon);
                     const speed = dist / travelTime;
-                    if (speed > 6) { isRail = true; break; }
+                    if (speed > 6) {
+                        isRail = true;
+                        break;
+                    }
                 }
             }
 
@@ -374,17 +404,14 @@ export class PosterRenderer {
         return stations;
     }
 
-    private collectEdges(
-        graph: TransitGraph,
-        bounds: PosterBounds
-    ): PosterEdge[] {
+    private collectEdges(graph: TransitGraph, bounds: PosterBounds): PosterEdge[] {
         const edges: PosterEdge[] = [];
         const seen = new Set<string>();
         const pad = 0.02;
 
         for (const [id, node] of graph.nodes) {
             if (node.lat < bounds.south - pad || node.lat > bounds.north + pad) continue;
-            if (node.lon < bounds.west  - pad || node.lon > bounds.east  + pad) continue;
+            if (node.lon < bounds.west - pad || node.lon > bounds.east + pad) continue;
 
             for (const [neighborId, travelTime] of node.neighbors) {
                 const edgeKey = id < neighborId ? `${id}-${neighborId}` : `${neighborId}-${id}`;
@@ -399,9 +426,11 @@ export class PosterRenderer {
                 const isRail = speed > 6;
 
                 edges.push({
-                    lat1: node.lat, lon1: node.lon,
-                    lat2: neighbor.lat, lon2: neighbor.lon,
-                    isRail
+                    lat1: node.lat,
+                    lon1: node.lon,
+                    lat2: neighbor.lat,
+                    lon2: neighbor.lon,
+                    isRail,
                 });
             }
         }
@@ -420,12 +449,14 @@ export class PosterRenderer {
         if (walkingNetwork.walkingTimes.size === 0) return null;
 
         const gb: MapBounds = {
-            north: bounds.north, south: bounds.south,
-            east: bounds.east,  west: bounds.west,
+            north: bounds.north,
+            south: bounds.south,
+            east: bounds.east,
+            west: bounds.west,
         };
         const gridData = new Float32Array(gridSize * gridSize);
         const latStep = (gb.north - gb.south) / gridSize;
-        const lngStep = (gb.east  - gb.west ) / gridSize;
+        const lngStep = (gb.east - gb.west) / gridSize;
 
         for (let row = 0; row < gridSize; row++) {
             const lat = gb.south + (row + 0.5) * latStep;

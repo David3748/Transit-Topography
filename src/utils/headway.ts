@@ -21,13 +21,13 @@ export interface TransitPeriod {
 export function getTransitPeriod(hourOfDay: number): TransitPeriod {
     const h = ((hourOfDay % 24) + 24) % 24; // normalise to [0, 24)
 
-    if (h < 5)         return { name: 'Late Night',   headwaySec: 1200, color: '#6366f1' }; // 20 min
-    if (h < 7)         return { name: 'Early Morning', headwaySec: 600, color: '#8b5cf6' }; // 10 min
-    if (h < 9)         return { name: 'AM Rush Hour',  headwaySec: 180, color: '#22c55e' }; // 3 min
-    if (h < 16)        return { name: 'Midday',        headwaySec: 420, color: '#3b82f6' }; // 7 min
-    if (h < 19)        return { name: 'PM Rush Hour',  headwaySec: 180, color: '#22c55e' }; // 3 min
-    if (h < 22)        return { name: 'Evening',       headwaySec: 480, color: '#f59e0b' }; // 8 min
-    return               { name: 'Late Night',         headwaySec: 720, color: '#ef4444' }; // 12 min
+    if (h < 5) return { name: 'Late Night', headwaySec: 1200, color: '#6366f1' }; // 20 min
+    if (h < 7) return { name: 'Early Morning', headwaySec: 600, color: '#8b5cf6' }; // 10 min
+    if (h < 9) return { name: 'AM Rush Hour', headwaySec: 180, color: '#22c55e' }; // 3 min
+    if (h < 16) return { name: 'Midday', headwaySec: 420, color: '#3b82f6' }; // 7 min
+    if (h < 19) return { name: 'PM Rush Hour', headwaySec: 180, color: '#22c55e' }; // 3 min
+    if (h < 22) return { name: 'Evening', headwaySec: 480, color: '#f59e0b' }; // 8 min
+    return { name: 'Late Night', headwaySec: 720, color: '#ef4444' }; // 12 min
 }
 
 /**
